@@ -56,7 +56,9 @@ DROP TABLE IF EXISTS `meals`;
 DROP TABLE IF EXISTS `meal_plans`;
 DROP TABLE IF EXISTS `invites`;
 DROP TABLE IF EXISTS `sessions`;
+DROP TABLE IF EXISTS `magic_links`;
 DROP TABLE IF EXISTS `users`;
+DROP TABLE IF EXISTS `roles`;
 DROP TABLE IF EXISTS `duty_groups`;
 DROP TABLE IF EXISTS `rooms`;
 DROP TABLE IF EXISTS `apartments`;
@@ -138,7 +140,41 @@ CREATE TABLE `duty_groups` (
 
 
 -- ===========================================================================
---  4. users — residents + admin. Auto-generated unique participant IDs.
+--  4. roles — optional fine-grained permissions layered on top of
+--     users.role.
+--
+--     users.role stays the coarse gate (admin|resident) because every
+--     route guard reads it. A user may additionally be given a role from
+--     this table, which carries a JSON list of permission keys. Auth::can()
+--     consults it; Auth::isAdmin() still wins if role='admin'.
+--
+--     permissions = '["*"]' means "everything", which is what a system
+--     admin role carries. Roles with apartment_id NULL are global
+--     templates offered to every flat and cannot be edited or removed.
+-- ===========================================================================
+CREATE TABLE `roles` (
+  `id`           INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `apartment_id` INT UNSIGNED NULL COMMENT 'NULL = global template available to all flats.',
+  `name`         VARCHAR(60)  NOT NULL,
+  `slug`         VARCHAR(60)  NOT NULL COMMENT 'Stable key used in URLs and logs.',
+  `description`  VARCHAR(255) NULL,
+  `permissions`  JSON         NOT NULL COMMENT 'List of permission keys, or ["*"] for all.',
+  `is_system`    TINYINT(1)   NOT NULL DEFAULT 0
+                 COMMENT 'Global template: cannot be renamed, edited or deleted.',
+  `created_at`   TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at`   TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP
+                 ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_roles_slug` (`slug`),
+  KEY `idx_roles_apartment` (`apartment_id`),
+  CONSTRAINT `fk_roles_apartment` FOREIGN KEY (`apartment_id`)
+    REFERENCES `apartments` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='Optional permission sets. users.role remains the coarse admin/resident gate.';
+
+
+-- ===========================================================================
+--  5. users — residents + admin. Auto-generated unique participant IDs.
 -- ===========================================================================
 CREATE TABLE `users` (
   `id`              INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -148,7 +184,10 @@ CREATE TABLE `users` (
   `email`           VARCHAR(190) NOT NULL,
   `phone`           VARCHAR(32)  NULL,
   `password_hash`   VARCHAR(255) NULL COMMENT 'NULL for magic-link-only accounts.',
-  `role`            ENUM('admin','resident') NOT NULL DEFAULT 'resident',
+  `role`            ENUM('admin','resident') NOT NULL DEFAULT 'resident'
+                    COMMENT 'Coarse gate read by every route guard.',
+  `role_id`         INT UNSIGNED NULL
+                    COMMENT 'Optional fine-grained role from the roles table.',
   `status`          ENUM('invited','active','suspended','offboarded')
                     NOT NULL DEFAULT 'active',
   `room_id`         INT UNSIGNED NULL,
@@ -174,13 +213,15 @@ CREATE TABLE `users` (
   CONSTRAINT `fk_users_room` FOREIGN KEY (`room_id`)
     REFERENCES `rooms` (`id`) ON DELETE SET NULL,
   CONSTRAINT `fk_users_duty_group` FOREIGN KEY (`duty_group_id`)
-    REFERENCES `duty_groups` (`id`) ON DELETE SET NULL
+    REFERENCES `duty_groups` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_users_role` FOREIGN KEY (`role_id`)
+    REFERENCES `roles` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='All actors. Chores apply to every status=active row regardless of meal opt-in.';
 
 
 -- ===========================================================================
---  5. magic_links — passwordless sign-in tokens
+--  6. magic_links — passwordless sign-in tokens
 -- ===========================================================================
 CREATE TABLE `magic_links` (
   `id`          INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -200,7 +241,7 @@ CREATE TABLE `magic_links` (
 
 
 -- ===========================================================================
---  6. sessions — persistent (remember-me) login rows
+--  7. sessions — persistent (remember-me) login rows
 -- ===========================================================================
 CREATE TABLE `sessions` (
   `id`            INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -220,7 +261,7 @@ CREATE TABLE `sessions` (
 
 
 -- ===========================================================================
---  7. invites — onboarding lifecycle
+--  8. invites — onboarding lifecycle
 -- ===========================================================================
 CREATE TABLE `invites` (
   `id`            INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -253,7 +294,7 @@ CREATE TABLE `invites` (
 
 
 -- ===========================================================================
---  8. meal_plans — one row per ISO week
+--  9. meal_plans — one row per ISO week
 -- ===========================================================================
 CREATE TABLE `meal_plans` (
   `id`           INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -274,7 +315,7 @@ CREATE TABLE `meal_plans` (
 
 
 -- ===========================================================================
---  9. meals — 21 slots per week (7 days x 3 meal types)
+--  10. meals — 21 slots per week (7 days x 3 meal types)
 -- ===========================================================================
 CREATE TABLE `meals` (
   `id`            INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -300,7 +341,7 @@ CREATE TABLE `meals` (
 
 
 -- ===========================================================================
--- 10. meal_participants — per-slot OPT-IN / OPT-OUT
+--  11. meal_participants — per-slot OPT-IN / OPT-OUT
 --     Drives grocery quantities AND the "split only among eaters" expense mode.
 -- ===========================================================================
 CREATE TABLE `meal_participants` (
@@ -321,7 +362,7 @@ CREATE TABLE `meal_participants` (
 
 
 -- ===========================================================================
--- 11. meal_suggestions — proposed dishes
+--  12. meal_suggestions — proposed dishes
 -- ===========================================================================
 CREATE TABLE `meal_suggestions` (
   `id`            INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -344,7 +385,7 @@ CREATE TABLE `meal_suggestions` (
 
 
 -- ===========================================================================
--- 12. suggestion_votes — up / down
+--  13. suggestion_votes — up / down
 -- ===========================================================================
 CREATE TABLE `suggestion_votes` (
   `id`            INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -364,7 +405,7 @@ CREATE TABLE `suggestion_votes` (
 
 
 -- ===========================================================================
--- 13. expense_categories
+--  14. expense_categories
 -- ===========================================================================
 CREATE TABLE `expense_categories` (
   `id`            INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -384,7 +425,7 @@ CREATE TABLE `expense_categories` (
 
 
 -- ===========================================================================
--- 14. expenses — the ledger header
+--  15. expenses — the ledger header
 -- ===========================================================================
 CREATE TABLE `expenses` (
   `id`             INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -429,7 +470,7 @@ CREATE TABLE `expenses` (
 
 
 -- ===========================================================================
--- 15. expense_splits — materialised per-user share
+--  16. expense_splits — materialised per-user share
 --     Denormalised on purpose: the ledger must be auditable and O(1) per user.
 -- ===========================================================================
 CREATE TABLE `expense_splits` (
@@ -454,7 +495,7 @@ CREATE TABLE `expense_splits` (
 
 
 -- ===========================================================================
--- 16. settlements — logged payouts that clear net balances
+--  17. settlements — logged payouts that clear net balances
 --     Modelled as synthetic zero-liability rows so the ledger stays additive.
 -- ===========================================================================
 CREATE TABLE `settlements` (
@@ -487,7 +528,7 @@ CREATE TABLE `settlements` (
 
 
 -- ===========================================================================
--- 17. chore_areas — a cleanable zone + its rotation rule
+--  18. chore_areas — a cleanable zone + its rotation rule
 -- ===========================================================================
 CREATE TABLE `chore_areas` (
   `id`              INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -525,7 +566,7 @@ CREATE TABLE `chore_areas` (
 
 
 -- ===========================================================================
--- 18. chore_tasks — the generated rotation instances
+--  19. chore_tasks — the generated rotation instances
 --     One row per (area, date, assignee). Re-computable & idempotent.
 -- ===========================================================================
 CREATE TABLE `chore_tasks` (
@@ -560,7 +601,7 @@ CREATE TABLE `chore_tasks` (
 
 
 -- ===========================================================================
--- 19. offboarding_tasks — departure checklist gate
+--  20. offboarding_tasks — departure checklist gate
 -- ===========================================================================
 CREATE TABLE `offboarding_tasks` (
   `id`           INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -584,7 +625,7 @@ CREATE TABLE `offboarding_tasks` (
 
 
 -- ===========================================================================
--- 20. announcements — notice board / broadcast
+--  21. announcements — notice board / broadcast
 -- ===========================================================================
 CREATE TABLE `announcements` (
   `id`           INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -618,7 +659,7 @@ CREATE TABLE `announcements` (
 
 
 -- ===========================================================================
--- 21. announcement_reads
+--  22. announcement_reads
 -- ===========================================================================
 CREATE TABLE `announcement_reads` (
   `announcement_id` INT UNSIGNED NOT NULL,
@@ -634,7 +675,7 @@ CREATE TABLE `announcement_reads` (
 
 
 -- ===========================================================================
--- 22. reminders — in-app notification badges
+--  23. reminders — in-app notification badges
 -- ===========================================================================
 CREATE TABLE `reminders` (
   `id`           INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -660,7 +701,7 @@ CREATE TABLE `reminders` (
 
 
 -- ===========================================================================
--- 23. activity_log — audit trail
+--  24. activity_log — audit trail
 -- ===========================================================================
 CREATE TABLE `activity_log` (
   `id`           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,

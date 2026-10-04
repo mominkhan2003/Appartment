@@ -84,6 +84,16 @@ final class ResidentService
         $u['balance']       = $balance['member'] ?? [];
         $u['offboarding']   = self::offboardingProgress($userId);
         $u['initials']      = self::initials((string) $u['full_name']);
+
+        // The SELECT above is u.* so that new columns show up without anyone
+        // having to remember to extend a column list. That convenience has to
+        // be paid for here: this row is returned straight to the browser by
+        // resident.find and me.update, and a password hash has no business
+        // crossing that boundary. The boolean survives so the profile page can
+        // still tell a password account from a magic-link one.
+        $u['has_password'] = !empty($u['password_hash']);
+        unset($u['password_hash']);
+
         return $u;
     }
 
@@ -371,19 +381,21 @@ public static function invites(int $apartmentId): array
         }
         if (array_key_exists('role', $input) && in_array($input['role'], ['admin', 'resident'], true)) {
             // Never let the last admin be demoted — that would orphan the flat.
-            if ($input['role'] === 'resident' && $user['role'] === 'admin') {
-                $admins = (int) Database::value(
-                    "SELECT COUNT(*) FROM users WHERE apartment_id = :a AND role = 'admin' AND status = 'active'",
-                    ['a' => $apartmentId]
-                );
-                if ($admins <= 1) {
-                    throw new ValidationException(['role' => 'This is the only admin. Promote someone else first.']);
-                }
+            // Counted through RoleService so a role-based admin counts too.
+            if ($input['role'] === 'resident'
+                && RoleService::isEffectiveAdmin($user)
+                && RoleService::activeAdminCount($apartmentId) <= 1) {
+                throw new ValidationException(['role' => 'This is the only admin. Promote someone else first.']);
             }
             $data['role'] = $input['role'];
         }
         if (array_key_exists('status', $input) && in_array($input['status'], ['active', 'suspended'], true)) {
             $data['status'] = $input['status'];
+        }
+        if (array_key_exists('role_id', $input)) {
+            // Role assignment has its own last-admin rules, so defer to the
+            // role service rather than writing the column directly.
+            RoleService::assign($apartmentId, $targetId, self::nullableId($input['role_id']));
         }
 
         if ($data === []) {
@@ -558,12 +570,10 @@ public static function invites(int $apartmentId): array
             throw new RuntimeException('That resident has already moved out.');
         }
 
-        $admins = (int) Database::value(
-            "SELECT COUNT(*) FROM users
-              WHERE apartment_id = :a AND role = 'admin' AND status = 'active' AND id <> :u1",
-            ['a' => $apartmentId, 'u1' => $userId]
-        );
-        if ($admins === 0) {
+        // Offboarding someone who is an admin -- directly or through a role --
+        // must leave another admin behind.
+        if (RoleService::isEffectiveAdmin($state['user'])
+            && RoleService::activeAdminCount($apartmentId) <= 1) {
             throw new ValidationException(['user' => 'This is the only admin. Promote a new one before removing them.']);
         }
 
@@ -651,6 +661,220 @@ public static function invites(int $apartmentId): array
     }
 
     /* ================================================================== */
+    /*  Self-service profile                                             */
+    /* ================================================================== */
+
+    /**
+     * Update the signed-in resident's own profile.
+     *
+     * Deliberately narrower than update(): role, status, room and duty group
+     * are all admin decisions, so there is no path here that can reach them.
+     * That separation is the whole reason this method exists separately.
+     */
+    public static function updateSelf(int $apartmentId, int $userId, array $input): array
+    {
+        $user = Database::one(
+            'SELECT id, full_name, email, phone, avatar_color, bio, favourite_food
+               FROM users WHERE id = :u1 AND apartment_id = :a',
+            ['u1' => $userId, 'a' => $apartmentId]
+        );
+        if ($user === null) {
+            throw new ValidationException(['profile' => 'Your profile could not be loaded.']);
+        }
+
+        $data = [];
+        $changed = [];
+
+        if (array_key_exists('full_name', $input)) {
+            $name = trim((string) $input['full_name']);
+            if (mb_strlen($name) < 2 || mb_strlen($name) > 120) {
+                throw new ValidationException([
+                    'full_name' => 'Your name must be between 2 and 120 characters.',
+                ]);
+            }
+            if ($name !== $user['full_name']) {
+                $data['full_name'] = $name;
+                $changed[] = 'name';
+            }
+        }
+
+        if (array_key_exists('phone', $input)) {
+            $phone = trim((string) ($input['phone'] ?? ''));
+            if ($phone !== '' && !preg_match('/^[0-9+()\-.\s]{4,32}$/', $phone)) {
+                throw new ValidationException([
+                    'phone' => 'Use digits, spaces and + ( ) - . only.',
+                ]);
+            }
+            $phone = $phone === '' ? null : $phone;
+            if ($phone !== $user['phone']) {
+                $data['phone'] = $phone;
+                $changed[] = 'phone';
+            }
+        }
+
+        if (array_key_exists('bio', $input)) {
+            $bio = trim((string) ($input['bio'] ?? ''));
+            $bio = $bio === '' ? null : mb_substr($bio, 0, 255);
+            if ($bio !== $user['bio']) {
+                $data['bio'] = $bio;
+                $changed[] = 'bio';
+            }
+        }
+
+        if (array_key_exists('favourite_food', $input)) {
+            $food = trim((string) ($input['favourite_food'] ?? ''));
+            $food = $food === '' ? null : mb_substr($food, 0, 120);
+            if ($food !== $user['favourite_food']) {
+                $data['favourite_food'] = $food;
+                $changed[] = 'favourite food';
+            }
+        }
+
+        if (array_key_exists('avatar_color', $input)) {
+            $colour = strtolower(trim((string) ($input['avatar_color'] ?? '')));
+            if (!preg_match('/^#[0-9a-f]{6}$/', $colour)) {
+                throw new ValidationException([
+                    'avatar_color' => 'Pick a colour, e.g. #6366f1.',
+                ]);
+            }
+            if ($colour !== strtolower((string) $user['avatar_color'])) {
+                $data['avatar_color'] = $colour;
+                $changed[] = 'avatar colour';
+            }
+        }
+
+        // Email carries the sign-in identity, so changing it needs the current
+        // password as proof and signs out the remembered devices.
+        $newEmail = null;
+        if (array_key_exists('email', $input)) {
+            $email = strtolower(trim((string) $input['email']));
+            if ($email !== strtolower((string) $user['email'])) {
+                if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                    throw new ValidationException(['email' => 'That is not a valid email address.']);
+                }
+                $taken = Database::value(
+                    'SELECT 1 FROM users WHERE email = :e AND id <> :u1',
+                    ['e' => $email, 'u1' => $userId]
+                );
+                if ($taken !== null) {
+                    throw new ValidationException(['email' => 'Another resident already uses that email.']);
+                }
+                if (!self::verifyCurrentPassword($userId, (string) ($input['current_password'] ?? ''))) {
+                    throw new ValidationException([
+                        'current_password' => 'Confirm your current password to change your email.',
+                    ]);
+                }
+                $data['email'] = $email;
+                $newEmail      = $email;
+                $changed[]     = 'email';
+            }
+        }
+
+        if ($data === []) {
+            return self::find($apartmentId, $userId);
+        }
+
+        Database::update('users', $data, 'id', $userId);
+
+        // Keep the memoised copy in step so the very next render shows the new
+        // name and colour without a second round trip.
+        $current = Auth::user();
+        if (is_array($current)) {
+            foreach ($data as $k => $v) {
+                $current[$k] = $v;
+            }
+            Auth::primeFromUser($current);
+        }
+
+        ActivityLog::record(
+            'profile.updated', 'user', $userId,
+            'Updated their profile (' . implode(', ', $changed) . ')'
+        );
+
+        if ($newEmail !== null) {
+            ApiAuth::revokeAll($userId);
+        }
+
+        return self::find($apartmentId, $userId);
+    }
+
+    /**
+     * Change a password after re-checking the current one, then kill every
+     * other session so a stolen cookie dies with the old password.
+     */
+    public static function changePassword(int $apartmentId, int $userId, array $input): array
+    {
+        $row = Database::one(
+            'SELECT id, full_name, password_hash FROM users
+              WHERE id = :u1 AND apartment_id = :a',
+            ['u1' => $userId, 'a' => $apartmentId]
+        );
+        if ($row === null) {
+            throw new ValidationException(['password' => 'Your account could not be loaded.']);
+        }
+        if (empty($row['password_hash'])) {
+            throw new ValidationException([
+                'current_password' => 'This account signs in with a magic link, so there is no '
+                                    . 'password to change.',
+            ]);
+        }
+
+        if (!self::verifyCurrentPassword($userId, (string) ($input['current_password'] ?? ''))) {
+            throw new ValidationException(['current_password' => 'That is not your current password.']);
+        }
+
+        $new    = (string) ($input['new_password'] ?? '');
+        $errors = Auth::validatePassword($new);
+        if ($errors !== []) {
+            throw new ValidationException(['new_password' => implode(' ', $errors)]);
+        }
+        if (password_verify($new, (string) $row['password_hash'])) {
+            throw new ValidationException([
+                'new_password' => 'That is already your password. Pick a different one.',
+            ]);
+        }
+
+        Database::update('users', ['password_hash' => Auth::hash($new)], 'id', $userId);
+
+        // Everything else signs out; the current session survives so the user
+        // is not bounced to the login page on success.
+        ApiAuth::revokeAll($userId);
+
+        ActivityLog::record('profile.password_changed', 'user', $userId, 'Changed their password');
+
+        return ['ok' => true];
+    }
+
+    /** Constant-time password re-check for the self-service flows. */
+    private static function verifyCurrentPassword(int $userId, string $candidate): bool
+    {
+        if ($candidate === '') {
+            return false;
+        }
+        $hash = Database::value(
+            'SELECT password_hash FROM users WHERE id = :u1',
+            ['u1' => $userId]
+        );
+        if (!is_string($hash) || $hash === '') {
+            return false;
+        }
+        return password_verify($candidate, $hash);
+    }
+
+    /** Mark the resident as seen now; cheap enough to call on auth.me. */
+    public static function touchLastSeen(int $userId): void
+    {
+        try {
+            Database::query(
+                'UPDATE users SET last_seen_at = UTC_TIMESTAMP() WHERE id = :u1',
+                ['u1' => $userId]
+            );
+        } catch (Throwable) {
+            // Never let a cosmetic timestamp break the page.
+        }
+    }
+
+    /* ================================================================== */
     /*  Helpers                                                            */
     /* ================================================================== */
 
@@ -721,6 +945,19 @@ public static function invites(int $apartmentId): array
     {
         $palette = ['#6366f1', '#ec4899', '#14b8a6', '#f59e0b', '#8b5cf6', '#ef4444', '#0ea5e9', '#84cc16'];
         return $palette[random_int(0, count($palette) - 1)];
+    }
+
+    /** '' and null both mean "no id"; anything else must be a positive int. */
+    private static function nullableId(mixed $value): ?int
+    {
+        if ($value === null || $value === '' || $value === 'null' || $value === false) {
+            return null;
+        }
+        $id = (int) $value;
+        if ($id <= 0) {
+            throw new ValidationException(['role_id' => 'Pick a role, or none to clear it.']);
+        }
+        return $id;
     }
 
     private static function initials(string $name): string

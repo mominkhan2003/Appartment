@@ -43,6 +43,19 @@ final class Auth
      */
     public static function primeFromUser(array $user): void
     {
+        /* Single choke point for "a user row becomes the current user".
+           ApiAuth's bearer path, the login path and the remember-me path all
+           funnel through here, and Auth::user() is echoed to the browser by
+           auth.me -- so this is the one place that has to be certain.
+
+           The array_key_exists() guard matters: ResidentService::updateSelf
+           re-primes the already-sanitised row to refresh the name and colour,
+           and recomputing from a missing key would report every password
+           account as a magic-link one. */
+        if (array_key_exists('password_hash', $user)) {
+            $user = self::sanitiseUser($user);
+        }
+
         self::$user     = $user;
         self::$resolved = true;
 
@@ -79,6 +92,11 @@ final class Auth
                 self::logout();
                 return null;
             }
+
+            // u.* keeps this query short, but self::$user is handed straight
+            // to the browser by the auth.me endpoint. The hash must not travel.
+            $row = self::sanitiseUser($row);
+
             self::$user = $row;
             return self::$user;
         }
@@ -109,9 +127,83 @@ final class Auth
         return self::user();
     }
 
+    /**
+     * The coarse gate every route guard reads.
+     *
+     * True for the legacy role='admin', and also for a resident whose assigned
+     * role grants 'admin.access' or '*' -- that is what lets a flat hand out
+     * admin powers without touching this method's contract.
+     *
+     * Degrades to the legacy column alone when sql/patch_roles_profile.sql has
+     * not been applied, so a partially migrated database keeps working.
+     */
     public static function isAdmin(): bool
     {
-        return (self::user()['role'] ?? '') === 'admin';
+        $user = self::user();
+        if (($user['role'] ?? '') === 'admin') {
+            return true;
+        }
+        if (empty($user['role_id']) || !RoleService::schemaReady()) {
+            return false;
+        }
+        return RoleService::isEffectiveAdmin($user);
+    }
+
+    /**
+     * Fine-grained check for a single permission key.
+     *
+     * A legacy admin holds everything, so existing installs behave exactly as
+     * before. A resident needs the permission on their assigned role; having no
+     * role at all means no extra permissions, which is the safe default.
+     */
+    public static function can(string $permission): bool
+    {
+        $user = self::user();
+        if (empty($user)) {
+            return false;
+        }
+        if (($user['role'] ?? '') === 'admin') {
+            return true;
+        }
+        if ($permission === 'admin.access' && self::isAdmin()) {
+            return true;
+        }
+        if (empty($user['role_id']) || !RoleService::schemaReady()) {
+            return false;
+        }
+
+        $raw = Database::value(
+            'SELECT permissions FROM roles WHERE id = :r',
+            ['r' => (int) $user['role_id']]
+        );
+        $perms = is_string($raw) ? (json_decode($raw, true) ?: []) : [];
+
+        if (!is_array($perms)) {
+            return false;
+        }
+        return in_array(RoleService::WILDCARD, $perms, true)
+            || in_array($permission, $perms, true);
+    }
+
+    /** Every permission key the signed-in user currently holds. */
+    public static function permissions(): array
+    {
+        $user = self::user();
+        if (empty($user)) {
+            return [];
+        }
+        if (($user['role'] ?? '') === 'admin') {
+            return [RoleService::WILDCARD];
+        }
+        if (empty($user['role_id']) || !RoleService::schemaReady()) {
+            return [];
+        }
+        $raw = Database::value(
+            'SELECT permissions FROM roles WHERE id = :r',
+            ['r' => (int) $user['role_id']]
+        );
+        $perms = is_string($raw) ? (json_decode($raw, true) ?: []) : [];
+        return is_array($perms) ? array_values(array_filter($perms, 'is_string')) : [];
     }
 
     public static function apartmentId(): int
@@ -186,7 +278,21 @@ final class Auth
         }
 
         self::login($row, $remember);
-        return ['ok' => true, 'user' => $row];
+        /* The row is returned to the client on a successful sign-in, so
+           sanitise exactly as primeFromUser() would. The hash is still on
+           $row above, which is why password_verify() ran before this point. */
+        return ['ok' => true, 'user' => self::sanitiseUser($row)];
+    }
+
+    /**
+     * Strip anything that must never reach a browser, keeping the non-sensitive
+     * has_password flag so the UI can still tell the two sign-in styles apart.
+     */
+    public static function sanitiseUser(array $user): array
+    {
+        $user['has_password'] = !empty($user['password_hash']);
+        unset($user['password_hash']);
+        return $user;
     }
 
     public static function hash(string $password): string

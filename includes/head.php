@@ -97,29 +97,45 @@ $flashes = take_flashes();
         <a class="fm-nav-link" href="<?= e(base_url('chores.php?tab=areas')) ?>">
           <i class="bi bi-sliders"></i> Rotation rules
         </a>
+        <?php if (Auth::can('role.manage')): ?>
+          <a class="fm-nav-link <?= $nav === 'roles' ? 'active' : '' ?>" href="<?= e(base_url('roles.php')) ?>">
+            <i class="bi bi-person-badge-fill"></i> Roles
+          </a>
+        <?php endif; ?>
+        <?php if (Auth::can('data.purge')): ?>
+          <a class="fm-nav-link <?= $nav === 'data_reset' ? 'active' : '' ?>" href="<?= e(base_url('data_reset.php')) ?>">
+            <i class="bi bi-eraser-fill"></i> Data reset
+          </a>
+        <?php endif; ?>
       <?php endif; ?>
     </nav>
 
     <div class="fm-sidebar-foot">
-      <div class="d-flex align-items-center gap-2">
-        <span class="fm-avatar sm" style="background:<?= e($me['avatar_color'] ?? '#64748b') ?>">
-          <?= e(initials($me['full_name'] ?? '?')) ?>
-        </span>
-        <div class="flex-grow-1 fm-truncate">
-          <div class="fm-truncate" style="font-size:.82rem;font-weight:600"><?= e($me['full_name'] ?? '') ?></div>
-          <div class="text-faint" style="font-size:.7rem">
-            <?= e($me['participant_code'] ?? '') ?>
-            <?= $isAdmin ? ' &middot; admin' : '' ?>
-          </div>
+<div class="d-flex align-items-center gap-2">
+          <!-- The identity block is the profile link. Nested inside the flex row
+               so the sign-out form below keeps its own place. -->
+          <a class="fm-nav-identity d-flex align-items-center gap-2 flex-grow-1 text-decoration-none"
+             href="<?= e(base_url('me.php')) ?>"
+             title="Your profile">
+            <span class="fm-avatar sm" style="background:<?= e($me['avatar_color'] ?? '#64748b') ?>">
+              <?= e(initials($me['full_name'] ?? '?')) ?>
+            </span>
+            <span class="flex-grow-1 fm-truncate">
+              <span class="fm-truncate d-block" style="font-size:.82rem;font-weight:600;color:inherit"><?= e($me['full_name'] ?? '') ?></span>
+              <span class="text-faint d-block" style="font-size:.7rem">
+                <?= e($me['participant_code'] ?? '') ?>
+                <?= $isAdmin ? ' &middot; admin' : '' ?>
+              </span>
+            </span>
+          </a>
+          <!-- POST-only: a GET sign-out link could be triggered by any page. -->
+          <form method="post" action="<?= e(base_url('logout.php')) ?>" class="d-inline">
+            <?= csrf_field() ?>
+            <button class="btn btn-sm btn-outline-secondary" type="submit" title="Sign out">
+              <i class="bi bi-box-arrow-right"></i>
+            </button>
+          </form>
         </div>
-        <!-- POST-only: a GET sign-out link could be triggered by any page. -->
-        <form method="post" action="<?= e(base_url('logout.php')) ?>" class="d-inline">
-          <?= csrf_field() ?>
-          <button class="btn btn-sm btn-outline-secondary" type="submit" title="Sign out">
-            <i class="bi bi-box-arrow-right"></i>
-          </button>
-        </form>
-      </div>
     </div>
   </aside>
 

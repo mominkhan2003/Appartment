@@ -71,13 +71,22 @@ views = OrderedDict()    # name -> body
 inserts = []             # (table, [cols], path)
 alters = []
 
-for path in ("sql/schema.sql", "sql/seed.sql", "sql/patch.sql"):
+for path in ("sql/schema.sql", "sql/seed.sql", "sql/patch.sql",
+             "sql/patch_roles_profile.sql"):
     raw = read(path)
     stmts = split_statements(raw)
     print(f"{path}: {len(stmts)} statements")
 
     for idx, stmt in enumerate(stmts, 1):
         head = " ".join(stmt.split()[:7])[:78]
+
+        # Session-statement plumbing used by the idempotent migration guards.
+        # sqlglot models PREPARE/EXECUTE loosely but has no DEALLOCATE at all,
+        # and none of these carry schema definitions worth cross-checking.
+        if re.match(r"(?is)^\s*(PREPARE|EXECUTE|DEALLOCATE)\b", stmt):
+            notes.append(f"{path} stmt#{idx}: session statement skipped ({head[:48]})")
+            continue
+
         try:
             tree = sqlglot.parse_one(stmt, read="mysql")
         except Exception as exc:
