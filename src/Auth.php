@@ -265,6 +265,7 @@ final class Auth
         $_SESSION['logged_in_at'] = time();
         self::$user     = $user;
         self::$resolved = true;
+    }
 
     public static function getClientIp(): ?string
     {
