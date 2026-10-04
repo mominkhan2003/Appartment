@@ -200,6 +200,21 @@ $ROUTES = [
     'expense.audit'     => ['GET',  'admin',  fn() => BalanceEngine::audit(Auth::apartmentId())],
     'report.summary'    => ['GET',  'admin',  fn() => BalanceEngine::report(Auth::apartmentId())],
 
+    // ---- shared house fund -------------------------------------------------
+    // Any resident can hand money in and see what the pot is doing; only an
+    // admin can rewind someone else's entry. The pot is deliberately not part
+    // of balance.ledger: fund-paid expenses are excluded from vw_balance_sheet
+    // so the two ledgers can never disagree about who owes whom.
+    'fund.summary'      => ['GET',  'auth',   fn() => ContributionService::summary(Auth::apartmentId())],
+    'contribution.list' => ['GET',  'auth',   fn(array $i) => ContributionService::listFor(
+        Auth::apartmentId(), (int) ($i['limit'] ?? 50))],
+    'contribution.create' => ['POST', 'auth', fn(array $i) => ContributionService::create(
+        Auth::apartmentId(), (int) Auth::id(), $i), ['from_user_id', 'amount']],
+    'contribution.delete' => ['POST', 'auth', function (array $i): array {
+        ContributionService::delete((int) $i['id'], (int) Auth::id());
+        return ['deleted' => true];
+    }, ['id']],
+
     // ---- ledger / settlement --------------------------------------------
     'balance.ledger'    => ['GET',  'auth',   fn(array $i) => BalanceEngine::ledger(
         Auth::apartmentId(), (string) ($i['strategy'] ?? 'auto'))],

@@ -54,13 +54,19 @@ FROM `users` u
 LEFT JOIN `rooms`       r ON r.`id` = u.`room_id`
 LEFT JOIN `duty_groups` g ON g.`id` = u.`duty_group_id`
 LEFT JOIN (
+  -- paid_from_fund = 1 is excluded on purpose. That money came out of the
+  -- shared pot, not out of the member's own pocket, so crediting it here would
+  -- make the shopper look like a creditor for money the household owes.
+  -- vw_house_fund accounts for those rows instead.
   SELECT `paid_by_user_id` AS uid, SUM(`amount`) AS total_paid
-  FROM `expenses` WHERE `is_deleted` = 0 GROUP BY `paid_by_user_id`
+  FROM `expenses` WHERE `is_deleted` = 0 AND `paid_from_fund` = 0
+  GROUP BY `paid_by_user_id`
 ) p ON p.`uid` = u.`id`
 LEFT JOIN (
   SELECT `user_id` AS uid, SUM(`share_amount`) AS total_owed
   FROM `expense_splits` es
-  JOIN `expenses` e ON e.`id` = es.`expense_id` AND e.`is_deleted` = 0
+  JOIN `expenses` e ON e.`id` = es.`expense_id`
+                  AND e.`is_deleted` = 0 AND e.`paid_from_fund` = 0
   GROUP BY `user_id`
 ) s ON s.`uid` = u.`id`
 LEFT JOIN (

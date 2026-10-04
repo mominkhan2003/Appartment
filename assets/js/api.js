@@ -156,6 +156,11 @@ const API = (() => {
     expenseCreate:(b)        => request('expense.create', { method: 'POST', body: b }),
     settle:       (b)        => request('balance.settle', { method: 'POST', body: b }),
     ledger:       (s)        => request('balance.ledger', { params: { strategy: s } }),
+
+    fundSummary:  ()         => request('fund.summary'),
+    contributions:(l)        => request('contribution.list', { params: { limit: l } }),
+    contribute:   (b)        => request('contribution.create', { method: 'POST', body: b }),
+    contributionDelete: (id) => request('contribution.delete', { method: 'POST', body: { id } }),
   };
 })();
 

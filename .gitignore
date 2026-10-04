@@ -12,3 +12,7 @@ storage/*.log
 node_modules/
 tests/node_modules/
 tests/package-lock.json
+
+# Python bytecode from the static checkers
+__pycache__/
+*.pyc

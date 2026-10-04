@@ -77,14 +77,31 @@ if (!function_exists('mysql_to_sqlite')) {
                 }
 
                 // A wrapped column definition can leave its modifiers alone on
-                // their own lines (e.g. "NOT NULL DEFAULT 'active'," or
-                // "ON UPDATE CURRENT_TIMESTAMP,"). They carry no type, so they
-                // cannot be columns, and SQLite has no ON UPDATE clause.
+                // their own lines, e.g.
+                //     `status` ENUM('invited','active') ...
+                //     NOT NULL DEFAULT 'active',
+                // MySQL still applies those modifiers to the column above, so
+                // they are folded back on rather than discarded. Dropping them
+                // silently removed users.status DEFAULT 'active', which made
+                // test seeds land as NULL and vw_balance_sheet (status IN
+                // ('active','invited')) then reported zero members. ON UPDATE
+                // CURRENT_TIMESTAMP is the one modifier SQLite cannot express,
+                // so it is still discarded.
                 if (!preg_match('/^[`"]/i', $line)
                     && preg_match(
                         '/^(NOT\s+NULL|NULL|DEFAULT|AUTO_INCREMENT|ON\s+UPDATE)\b/i',
                         $line
                     )) {
+                    $folded   = trim(rtrim($line, ','));
+                    $lastKey  = array_key_last($keep);
+
+                    if (preg_match('/^ON\s+UPDATE\b/i', $folded) !== 1
+                        && $lastKey !== null
+                        && $keep[$lastKey] !== ''
+                        && stripos($keep[$lastKey], 'AUTOINCREMENT') === false
+                    ) {
+                        $keep[$lastKey] .= ' ' . $folded;
+                    }
                     continue;
                 }
 
@@ -164,6 +181,56 @@ if (!function_exists('mysql_strip_table_options')) {
         ) ?? $sql;
 
         return trim($sql);
+    }
+}
+
+if (!function_exists('sqlite_shims')) {
+    /**
+     * Registers the MySQL-only SQL functions the application calls.
+     *
+     * These live here rather than in each suite because that is how the YEAR()
+     * gap survived so long: the three suites each carried their own copy of the
+     * shim list, ExpenseService::nextReference() was the first code to need
+     * YEAR(), and nothing failed until a suite finally exercised create().
+     * One list, one place to add to.
+     *
+     * Not shimmable: DATE_SUB(x, INTERVAL n DAY) and friends. SQLite's parser
+     * rejects MySQL's INTERVAL syntax before any function is consulted, so those
+     * queries cannot be run here at all. The suites deliberately avoid the
+     * services that use them (DashboardService, Reminder).
+     *
+     * @return array<string,string> function name => what it stands in for
+     */
+    function sqlite_shims(PDO $pdo): array
+    {
+        $date = static fn (mixed $v): string => match (true) {
+            $v === null || $v === '' => gmdate('Y-m-d'),
+            is_numeric($v)            => gmdate('Y-m-d', (int) $v),
+            default                   => substr((string) $v, 0, 10),
+        };
+
+        $shims = [
+            'UTC_DATE'      => static fn (): string => gmdate('Y-m-d'),
+            'UTC_TIMESTAMP' => static fn (): string => gmdate('Y-m-d H:i:s'),
+            'CURDATE'       => static fn (): string => gmdate('Y-m-d'),
+            'NOW'           => static fn (): string => gmdate('Y-m-d H:i:s'),
+
+            'YEAR'  => static fn (mixed $v): int => (int) substr($date($v), 0, 4),
+            'MONTH' => static fn (mixed $v): int => (int) substr($date($v), 5, 2),
+            'DAY'   => static fn (mixed $v): int => (int) substr($date($v), 8, 2),
+
+            // MySQL numbering: 1 = Sunday .. 7 = Saturday. Callers rely on that
+            // offset (ExpenseService does DAYOFWEEK(...) % 7), so this must
+            // return an int -- a string here would silently become 0.
+            'DAYOFWEEK' => static fn (mixed $v): int
+                => (int) gmdate('w', strtotime($date($v) . ' 00:00:00 UTC')) + 1,
+        ];
+
+        foreach ($shims as $name => $fn) {
+            $pdo->sqliteCreateFunction($name, $fn);
+        }
+
+        return array_combine(array_keys($shims), array_keys($shims));
     }
 }
 

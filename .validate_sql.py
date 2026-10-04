@@ -11,6 +11,7 @@ import io
 import re
 import sys
 from collections import OrderedDict
+from pathlib import Path
 
 import sqlglot
 from sqlglot import exp
@@ -71,8 +72,11 @@ views = OrderedDict()    # name -> body
 inserts = []             # (table, [cols], path)
 alters = []
 
-for path in ("sql/schema.sql", "sql/seed.sql", "sql/patch.sql",
-             "sql/patch_roles_profile.sql"):
+# Every .sql file in sql/ is checked, discovered rather than listed. A patch
+# added later is not silently left unvalidated.
+SQL_FILES = tuple(sorted(str(p) for p in (Path("sql").glob("*.sql"))))
+
+for path in SQL_FILES:
     raw = read(path)
     stmts = split_statements(raw)
     print(f"{path}: {len(stmts)} statements")
@@ -191,8 +195,43 @@ for tname, cols in tables.items():
             warnings.append(f"{tname}: duplicate index {kname} vs {seen[sig]}")
         seen[sig] = kname
 
+# ------------------------------------------------- cross-file view drift ----
+# vw_balance_sheet is defined in schema.sql, patch.sql AND patch_house_fund.sql.
+# Whichever a DBA runs last wins, so a stale copy in any one of them silently
+# changes the arithmetic the app depends on. This is exactly how the
+# paid_from_fund exclusion went missing from patch.sql once already.
+def normalise_view(sql: str) -> str:
+    return re.sub(r"\s+", " ", sql).strip().rstrip(";")
+
+
+view_defs: dict[str, dict[str, str]] = OrderedDict()
+VIEW_DEF_RE = re.compile(
+    r"CREATE\s+(?:OR\s+REPLACE\s+)?VIEW\s+`?(\w+)`?\s+AS\s+(.*?);", re.I | re.S)
+
+for path in SQL_FILES:
+    raw = read(path)
+    for name, body in VIEW_DEF_RE.findall(raw):
+        view_defs.setdefault(name.lower(), {})[path] = normalise_view(body)
+
+for name, per_file in view_defs.items():
+    if len(per_file) < 2:
+        continue
+    distinct = set(per_file.values())
+    if len(distinct) > 1:
+        errors.append(
+            f"view {name} has {len(distinct)} different definitions across "
+            + ", ".join(sorted(per_file))
+            + " -- whichever is imported last silently wins"
+        )
+    else:
+        notes.append(
+            f"view {name}: identical in {len(per_file)} file(s) "
+            + ", ".join(sorted(per_file)))
+
 # -------------------------------------------------------------- report ----
 print("\n" + "=" * 72)
+for n in notes:
+    print("  . " + n)
 for w in warnings:
     print("  ~ " + w)
 if errors:
@@ -200,4 +239,5 @@ if errors:
     for e in errors:
         print("  x " + e)
     sys.exit(1)
-print("\nOK  - schema.sql + seed.sql + patch.sql parse cleanly, FK/INSERT/view references resolve")
+print("\nOK  - every .sql file parses cleanly, FK/INSERT/view references "
+      "resolve, view definitions agree across files")

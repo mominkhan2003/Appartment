@@ -31,8 +31,7 @@ $pdo = new PDO('sqlite::memory:', null, null, [
     PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
     PDO::ATTR_EMULATE_PREPARES   => false,
 ]);
-$pdo->sqliteCreateFunction('UTC_DATE', static fn(): string => gmdate('Y-m-d'));
-$pdo->sqliteCreateFunction('UTC_TIMESTAMP', static fn(): string => gmdate('Y-m-d H:i:s'));
+    sqlite_shims($pdo);
 $pdo->exec('PRAGMA foreign_keys = ON');
 $pdo->exec(sqlite_schema_sql());
 
@@ -113,6 +112,14 @@ function addNotice(int $apartmentId, int $authorId, string $title): int
 
 // Flat A gets one of everything the registry can wipe.
 $aExpense  = addExpense($a['apartment_id'], $a['payer'], $a['creator'], 'Flat A groceries');
+$aContribution = Database::insert('contributions', [
+    'apartment_id'   => $a['apartment_id'],
+    'from_user_id'   => $a['payer'],
+    'amount'         => '250.00',
+    'method'         => 'cash',
+    'contributed_on' => gmdate('Y-m-d'),
+    'created_by'     => $a['admin'],
+]);
 $aNotice   = addNotice($a['apartment_id'], $a['admin'], 'Flat A notice');
 $aArea     = Database::insert('chore_areas', [
     'apartment_id' => $a['apartment_id'],
@@ -151,6 +158,14 @@ Database::insert('magic_links', [
 
 // Flat B gets a parallel set that must survive untouched.
 $bExpense = addExpense($b['apartment_id'], $b['payer'], $b['payer'], 'Flat B groceries');
+$bContribution = Database::insert('contributions', [
+    'apartment_id'   => $b['apartment_id'],
+    'from_user_id'   => $b['payer'],
+    'amount'         => '99.00',
+    'method'         => 'cash',
+    'contributed_on' => gmdate('Y-m-d'),
+    'created_by'     => $b['admin'],
+]);
 $bNotice  = addNotice($b['apartment_id'], $b['admin'], 'Flat B notice');
 Database::insert('invites', [
     'apartment_id' => $b['apartment_id'],
@@ -197,9 +212,12 @@ $t->throws(
 
 $t->group('Scope dependencies');
 
+// Matched on 'Expenses' rather than the scope's full label: the wording is UI
+// copy that legitimately changes, while the rule under test -- wiping residents
+// without the ledger that points at them is refused -- does not.
 $t->throws(
     static fn() => DataResetService::purge($a['apartment_id'], $a['admin'], ['residents'], $confirm),
-    'Expenses and settlements',
+    'Expenses',
     '"residents" without "expense_ledger" is refused'
 );
 $t->same($before, $snapshot(), 'the refused dependency check deleted nothing');
@@ -275,6 +293,29 @@ $t->same(1, (int) Database::value(
 
 $t->group('Everyone is protected, not just the signed-in admin');
 
+/*
+ * The house fund is part of the ledger scope in its own right. This has to be
+ * checked with expense_ledger ALONE: if residents are purged in the same call,
+ * the contributions disappear via ON DELETE CASCADE from users and the scope
+ * list is never actually exercised. Purging only the ledger leaves every
+ * resident standing, so the row can only be removed by the scope naming it.
+ */
+$t->same(1, (int) Database::value(
+    'SELECT COUNT(*) FROM contributions WHERE apartment_id = :a',
+    ['a' => $a['apartment_id']]
+), 'flat A starts with one contribution');
+
+DataResetService::purge($a['apartment_id'], $a['admin'], ['expense_ledger'], $confirm);
+
+$t->same(0, (int) Database::value(
+    'SELECT COUNT(*) FROM contributions WHERE apartment_id = :a',
+    ['a' => $a['apartment_id']]
+), 'the ledger scope removes contributions without touching residents');
+$t->same(1, (int) Database::value('SELECT COUNT(*) FROM users WHERE id = :id', ['id' => $a['payer']]),
+    'the resident who paid in is untouched by a ledger-only purge');
+$t->same(1, (int) Database::value('SELECT COUNT(*) FROM contributions WHERE id = :id', ['id' => $bContribution]),
+    'flat B keeps its contribution');
+
 DataResetService::purge(
     $a['apartment_id'],
     $a['admin'],
@@ -299,6 +340,12 @@ $t->same(0, (int) Database::value(
     'SELECT COUNT(*) FROM expense_splits WHERE expense_id IN (SELECT id FROM expenses WHERE apartment_id = :a)',
     ['a' => $a['apartment_id']]
 ), 'no orphaned splits remain');
+$t->same(0, (int) Database::value(
+    'SELECT COUNT(*) FROM contributions WHERE apartment_id = :a',
+    ['a' => $a['apartment_id']]
+), 'the ledger scope removed flat A house-fund contributions too');
+$t->same(1, (int) Database::value('SELECT COUNT(*) FROM contributions WHERE id = :id', ['id' => $bContribution]),
+    'flat B keeps its contribution');
 $t->same(1, (int) Database::value('SELECT COUNT(*) FROM expenses WHERE id = :id', ['id' => $bExpense]),
     'flat B expenses are still there after a residents purge');
 
@@ -359,6 +406,7 @@ $t->group('A failure part way through rolls the whole thing back');
 $usersBefore = (int) Database::value('SELECT COUNT(*) FROM users');
 $logBefore   = (int) Database::value('SELECT COUNT(*) FROM activity_log');
 $expBefore   = (int) Database::value('SELECT COUNT(*) FROM expenses');
+$contribBefore = (int) Database::value('SELECT COUNT(*) FROM contributions');
 
 $t->throws(
     static function () use ($a, $confirm): void {
@@ -378,6 +426,8 @@ $t->throws(
 $t->same($usersBefore, (int) Database::value('SELECT COUNT(*) FROM users'), 'users are intact after the rollback');
 $t->same($expBefore, (int) Database::value('SELECT COUNT(*) FROM expenses'),
     'the expenses the aborted wipe deleted are back');
+$t->same($contribBefore, (int) Database::value('SELECT COUNT(*) FROM contributions'),
+    'the contributions the aborted wipe deleted are back');
 $t->same($logBefore, (int) Database::value('SELECT COUNT(*) FROM activity_log'),
     'the audit entry written inside the aborted transaction was rolled back too');
 

@@ -382,6 +382,26 @@
       previewSplit();
     };
 
+    // A grocery run is bought for the people who are eating, so choosing a
+    // consumable category flips the split rule over for you. It is only a
+    // default: the rule stays visible and editable in the same dropdown, and the
+    // server recomputes the shares regardless of what the form shows.
+    const applyConsumableDefault = () => {
+      const catId = $('[data-categories]')?.value;
+      const cat = categories.find((c) => String(c.id) === String(catId));
+      if (!cat || !looksConsumable(cat)) return;
+
+      const split = $('[name="split_type"]');
+      if (split.value === 'equal') {
+        split.value = 'meal_based';
+        $('[name="meal_scope"]').value = 'current_week';
+        syncBlocks();
+      }
+      // Household consumables are the reason the pot exists, so suggest it too.
+      const fund = form.elements.namedItem('paid_from_fund');
+      if (fund) fund.checked = true;
+    };
+
     form.addEventListener('change', (ev) => {
       if (ev.target.name === 'split_type') {
         // Default "selective" to everyone in, which is what people expect.
@@ -392,6 +412,7 @@
         return;
       }
       if (ev.target.name === 'meal_scope') { syncBlocks(); return; }
+      if (ev.target.name === 'category_id') { applyConsumableDefault(); return; }
       if (ev.target.name === 'amount') previewSplit();
     });
 
@@ -440,7 +461,7 @@
         syncBlocks();
         App.closeModal($('#newExpense'));
         page = 0;
-        await Promise.all([loadLedger(), loadLedgerBoard(), loadBreakdown()]);
+        await Promise.all([loadLedger(), loadLedgerBoard(), loadBreakdown(), loadFund()]);
       }, {
         onError: (err) => {
           if (err instanceof API.ApiError && err.code === 'validation_failed') {
@@ -534,7 +555,7 @@
         await API.post('expense.delete', { id: Number(el.dataset.delete) });
         App.toast('Expense deleted.', 'ok');
         App.closeModal($('#expenseDetail'));
-        await Promise.all([loadLedger(), loadLedgerBoard(), loadBreakdown()]);
+        await Promise.all([loadLedger(), loadLedgerBoard(), loadBreakdown(), loadFund()]);
       });
     });
 
@@ -571,7 +592,134 @@
     $$('[data-bs-toggle="pill"]').forEach((tab) => {
       tab.addEventListener('shown.bs.tab', () => {
         if (tab.dataset.bsTarget === '#tab-settle') loadLedgerBoard();
+        if (tab.dataset.bsTarget === '#tab-fund') loadFund();
         if (tab.dataset.bsTarget === '#tab-categories') loadBreakdown();
+      });
+    });
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  House fund                                                         */
+  /* ------------------------------------------------------------------ */
+
+  // Categories that are household consumables. Opening the form on one of
+  // these pre-selects "Only the people who ate", because a shared pot buys
+  // shared meals: everyone who opted into the meal plan that week pays an equal
+  // share, and anyone who opted out does not.
+  const CONSUMABLE_HINTS = ['grocery', 'groceries', 'food', 'meal', 'kitchen', 'ration', 'bazar'];
+
+  function looksConsumable(cat) {
+    const hay = `${cat?.name || ''} ${cat?.icon || ''}`.toLowerCase();
+    return CONSUMABLE_HINTS.some((h) => hay.includes(h));
+  }
+
+  async function loadFund() {
+    const s = await App.guard(() => API.fundSummary());
+    if (!s) return;
+
+    const balanceTone = s.balance_cents < 0 ? 'text-danger' : 'text-primary';
+
+    $('[data-fund-totals]').innerHTML = `
+      <div class="row g-3">
+        <div class="col-md-4">
+          <div class="text-muted small">In the fund now</div>
+          <div class="h4 mb-0 ${balanceTone}">${Fmt.money(s.balance_cents)}</div>
+        </div>
+        <div class="col-md-4">
+          <div class="text-muted small">Paid in so far</div>
+          <div class="h5 mb-0">${Fmt.money(s.total_contributed_cents)}</div>
+        </div>
+        <div class="col-md-4">
+          <div class="text-muted small">Spent from it</div>
+          <div class="h5 mb-0">${Fmt.money(s.total_spent_cents)}</div>
+        </div>
+      </div>`;
+
+    const collectTotal = $('[data-collect-total]');
+    if (collectTotal) {
+      collectTotal.textContent = s.total_outstanding_cents > 0
+        ? Fmt.money(s.total_outstanding_cents)
+        : '';
+    }
+
+    $('[data-fund-collectors]').innerHTML = s.collectors.length
+      ? s.collectors.map((m) => `
+          <div class="d-flex justify-content-between align-items-center py-2 border-bottom">
+            <span>${esc(m.full_name)}${m.room_code ? ` <span class="text-faint">· ${esc(m.room_code)}</span>` : ''}</span>
+            <span class="text-danger">${Fmt.money(m.outstanding_cents)}</span>
+          </div>`).join('')
+      : '<div class="text-muted p-2">Nobody owes the fund.</div>';
+
+    await loadFundLog();
+  }
+
+  async function loadFundLog() {
+    const rows = await App.guard(() => API.contributions(30));
+    if (!rows) return;
+
+    $('[data-fund-log]').innerHTML = rows.length
+      ? `<div class="table-responsive"><table class="table table-sm align-middle mb-0">
+          <thead><tr>
+            <th>Who</th><th>When</th><th>How</th><th class="text-end">Amount</th><th></th>
+          </tr></thead>
+          <tbody>${rows.map((c) => `
+            <tr>
+              <td>${esc(c.from_name)}${c.note ? `<div class="text-faint" style="font-size:.75rem">${esc(c.note)}</div>` : ''}</td>
+              <td class="text-nowrap">${Fmt.date(c.contributed_on)}</td>
+              <td class="text-capitalize">${esc(c.method)}</td>
+              <td class="text-end">${Fmt.money(c.amount_cents)}</td>
+              <td class="text-end">
+                ${canRemoveContribution(c) ? `
+                  <button class="btn btn-sm btn-link text-danger p-0" data-drop-contribution="${c.id}"
+                          title="Remove this entry"><i class="bi bi-trash"></i></button>` : ''}
+              </td>
+            </tr>`).join('')}
+          </tbody></table></div>`
+      : '<div class="text-muted">No money has been put in yet.</div>';
+  }
+
+  // Mirrors ContributionService::delete(): admins, or the person who logged it.
+  function canRemoveContribution(c) {
+    if (me?.role === 'admin') return true;
+    return Number(c.from_user_id) === me?.id;
+  }
+
+  function initFund() {
+    const form = $('[data-form="contribution"]');
+    if (!form) return;
+
+    form.elements.namedItem('contributed_on').value = new Date().toISOString().slice(0, 10);
+
+    on(form, 'submit', async (ev) => {
+      ev.preventDefault();
+      App.clearErrors(form);
+
+      const submit = form.querySelector('[type="submit"]');
+      submit.disabled = true;
+      await App.guard(async () => {
+        await API.contribute(Object.fromEntries(new FormData(form).entries()));
+        App.toast('Added to the house fund.', 'ok');
+        form.reset();
+        form.elements.namedItem('contributed_on').value = new Date().toISOString().slice(0, 10);
+        App.closeModal($('#newContribution'));
+        await Promise.all([loadFund(), loadLedger()]);
+      }, {
+        onError: (err) => {
+          if (err instanceof API.ApiError && err.code === 'validation_failed') {
+            App.showErrors(form, err.details);
+          }
+        },
+      });
+      submit.disabled = false;
+    });
+
+    // Delegated, because the log is re-rendered after every change.
+    on(document, 'click', '[data-drop-contribution]', async (ev, el) => {
+      if (!confirm('Remove this contribution? The fund balance goes back down.')) return;
+      await App.guard(async () => {
+        await API.contributionDelete(Number(el.dataset.dropContribution));
+        App.toast('Contribution removed.', 'ok');
+        await Promise.all([loadFund(), loadLedger()]);
       });
     });
   }
@@ -601,6 +749,7 @@
     initMonthPicker();
     wire();
     initSettleForm();
+    initFund();
     await initForm();
     await loadLedger();
   });

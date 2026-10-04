@@ -43,8 +43,7 @@ final class Harness
         ]);
 
         // SQLite has no MySQL date functions; the schema and services use them.
-        $this->pdo->sqliteCreateFunction('UTC_DATE', static fn(): string => gmdate('Y-m-d'));
-        $this->pdo->sqliteCreateFunction('UTC_TIMESTAMP', static fn(): string => gmdate('Y-m-d H:i:s'));
+        sqlite_shims($this->pdo);
 
         $this->pdo->exec('PRAGMA foreign_keys = ON');
         $this->pdo->exec(sqlite_schema_sql());

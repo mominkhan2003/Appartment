@@ -28,10 +28,15 @@ require __DIR__ . '/includes/head.php';
             type="button" role="tab">Settle up</button>
   </li>
   <li class="nav-item" role="presentation">
+    <button class="nav-link" data-bs-toggle="pill" data-bs-target="#tab-fund"
+            type="button" role="tab">House fund</button>
+  </li>
+  <li class="nav-item" role="presentation">
     <button class="nav-link" data-bs-toggle="pill" data-bs-target="#tab-categories"
             type="button" role="tab">Breakdown</button>
   </li>
 </ul>
+
 
 <div class="tab-content">
 
@@ -132,7 +137,47 @@ require __DIR__ . '/includes/head.php';
     </div>
   </div>
 
+  <!-- ================= house fund ================= -->
+  <div class="tab-pane fade" id="tab-fund">
+    <div class="fm-grid fm-split-wide">
+      <div class="fm-card">
+        <div class="fm-card-head">
+          <h2><i class="bi bi-piggy-bank text-primary"></i> Cash in the fund</h2>
+          <div class="fm-end">
+            <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#newContribution">
+              <i class="bi bi-plus-lg"></i> Add money
+            </button>
+          </div>
+        </div>
+        <div data-fund-totals><div class="p-3"><div class="fm-skeleton" style="height:5rem"></div></div></div>
+        <div class="fm-card-foot">
+          <p class="text-faint mb-0" style="font-size:.75rem">
+            Money handed over goes up; groceries bought from it come down.
+            Expenses marked &ldquo;from the house fund&rdquo; stay off the
+            settle-up tab, so nobody is chased for the pot twice.
+          </p>
+        </div>
+      </div>
+
+      <div class="fm-card">
+        <div class="fm-card-head">
+          <h2><i class="bi bi-person-exclamation text-primary"></i> Still to collect</h2>
+          <div class="fm-end" data-collect-total></div>
+        </div>
+        <div data-fund-collectors><div class="p-3"><div class="fm-skeleton" style="height:5rem"></div></div></div>
+      </div>
+    </div>
+
+    <div class="fm-card mt-3">
+      <div class="fm-card-head">
+        <h2><i class="bi bi-clock-history text-primary"></i> Money in and out of the fund</h2>
+      </div>
+      <div data-fund-log><div class="p-3"><div class="fm-skeleton" style="height:6rem"></div></div></div>
+    </div>
+  </div>
+
   <!-- ================= breakdown ================= -->
+
   <div class="tab-pane fade" id="tab-categories">
     <div class="fm-card">
       <div class="fm-card-head">
@@ -148,7 +193,67 @@ require __DIR__ . '/includes/head.php';
   </div>
 </div>
 
+<!-- ================= add money to the fund ================= -->
+<div class="modal fade" id="newContribution" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content fm-card">
+      <form data-form="contribution">
+        <div class="modal-header">
+          <h5 class="modal-title">Add money to the house fund</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+
+        <div class="modal-body">
+          <p class="text-faint">
+            Use this when a resident hands over cash for groceries or bills.
+            Their outstanding share comes down by the same amount.
+          </p>
+
+          <div class="mb-2">
+            <label class="form-label" for="k-from">Who paid in?</label>
+            <select class="form-select" id="k-from" name="from_user_id" data-payers required></select>
+          </div>
+
+          <div class="row g-2">
+            <div class="col-6 mb-2">
+              <label class="form-label" for="k-amount">Amount (<?= e((string) config('app.currency', '\u{20AC}')) ?>)</label>
+              <input class="form-control" id="k-amount" name="amount" inputmode="decimal"
+                     placeholder="0.00" required>
+            </div>
+            <div class="col-6 mb-2">
+              <label class="form-label" for="k-method">How?</label>
+              <select class="form-select" id="k-method" name="method">
+                <option value="cash">Cash</option>
+                <option value="bkash">bKash</option>
+                <option value="nagad">Nagad</option>
+                <option value="bank">Bank</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="mb-2">
+            <label class="form-label" for="k-on">Date</label>
+            <input class="form-control" id="k-on" name="contributed_on" type="date" required>
+          </div>
+
+          <div class="mb-0">
+            <label class="form-label" for="k-note">Note (optional)</label>
+            <input class="form-control" id="k-note" name="note" placeholder="e.g. March grocery share">
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary">Add money</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
 <!-- ================= new expense ================= -->
+
 <div class="modal fade" id="newExpense" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered modal-lg">
     <div class="modal-content fm-card">
@@ -222,9 +327,25 @@ require __DIR__ . '/includes/head.php';
             <div class="d-flex flex-wrap gap-1 mt-2 d-none" data-eater-picker></div>
           </div>
 
+          <div class="mb-2">
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" id="e-fund"
+                     name="paid_from_fund" value="1">
+              <label class="form-check-label" for="e-fund">
+                Paid from the house fund
+              </label>
+            </div>
+            <div class="form-hint">
+              Tick this for groceries and bills bought with the household's cash.
+              The shopper is still recorded above, but the money is tracked in
+              the House fund tab instead of being owed to one person.
+            </div>
+          </div>
+
           <div class="mb-0">
             <label class="form-label" for="e-note">Note (optional)</label>
             <input class="form-control" id="e-note" name="description" placeholder="Anything worth remembering">
+
           </div>
         </div>
 

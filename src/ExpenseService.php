@@ -57,6 +57,12 @@ final class ExpenseService
             throw new ValidationException(['split_type' => 'Unknown split type.']);
         }
 
+        // Drawn from the shared house fund rather than the payer's own pocket.
+        // paid_by_user_id is still required and still recorded: it answers "who
+        // physically went shopping", which the audit trail needs. The flag only
+        // decides which ledger owns the money -- see vw_house_fund.
+        $paidFromFund = !empty($input['paid_from_fund']) ? 1 : 0;
+
         $date = (string) ($input['expense_date'] ?? gmdate('Y-m-d'));
         if (!self::isValidDate($date)) {
             throw new ValidationException(['expense_date' => 'Use a YYYY-MM-DD date.']);
@@ -92,7 +98,8 @@ final class ExpenseService
         // ---- persist -------------------------------------------------------
         return Database::transaction(static function () use (
             $apartmentId, $actorId, $input, $amountCents, $payer, $categoryId,
-            $splitType, $meta, $shares, $date, $isMealRelated, $activeIds
+            $splitType, $meta, $shares, $date, $isMealRelated, $activeIds,
+            $paidFromFund
         ) {
             $expenseId = Database::insert('expenses', [
                 'apartment_id'    => $apartmentId,
@@ -107,6 +114,7 @@ final class ExpenseService
                 'split_meta'      => $meta === null ? null : json_encode($meta, JSON_UNESCAPED_UNICODE),
                 'expense_date'    => $date,
                 'is_meal_related' => $isMealRelated ? 1 : 0,
+                'paid_from_fund'  => $paidFromFund,
                 'created_by'      => $actorId,
             ]);
 
@@ -141,8 +149,20 @@ final class ExpenseService
             };
             ActivityLog::record(
                 'expense.created', 'expense', $expenseId,
-                sprintf('%s logged "%s" — %s %s', $payerName, $input['title'], money($shares ? $amountCents / 100 : 0), $label),
-                ['split_type' => $splitType, 'heads' => count($shares), 'amount_cents' => $amountCents]
+                sprintf(
+                    '%s logged "%s" — %s %s%s',
+                    $payerName,
+                    $input['title'],
+                    money($shares ? $amountCents / 100 : 0),
+                    $label,
+                    $paidFromFund === 1 ? ' from the house fund' : ''
+                ),
+                [
+                    'split_type'      => $splitType,
+                    'heads'           => count($shares),
+                    'amount_cents'    => $amountCents,
+                    'paid_from_fund'  => $paidFromFund,
+                ]
             );
 
             return self::find($expenseId);
@@ -466,6 +486,9 @@ final class ExpenseService
         $row['head_count']  = count($row['splits']);
         $row['split_meta']  = $row['split_meta'] ? json_decode((string) $row['split_meta'], true) : null;
         $row['split_label'] = self::splitLabel($row);
+        // Cast so the JSON client sees 0/1 rather than "0"/"1"; the UI tests it
+        // for truthiness when it offers to delete an expense.
+        $row['paid_from_fund'] = (int) ($row['paid_from_fund'] ?? 0);
         return $row;
     }
 
@@ -567,6 +590,7 @@ final class ExpenseService
 
         $sql = 'SELECT e.id, e.reference_no, e.title, e.description, e.amount, e.expense_date,
                        e.split_type, e.is_meal_related, e.is_disputed, e.dispute_note,
+                       e.paid_from_fund,
                        e.paid_by_user_id, c.name AS category_name, c.icon AS category_icon,
                        p.full_name AS paid_by_name, p.avatar_color AS paid_by_avatar,
                        (SELECT COUNT(*) FROM expense_splits es WHERE es.expense_id = e.id) AS head_count,
@@ -675,10 +699,29 @@ final class ExpenseService
     private static function nextReference(int $apartmentId): string
     {
         $year = (int) gmdate('Y');
-        $n    = (int) Database::value(
-            'SELECT COUNT(*) FROM expenses WHERE apartment_id = :a AND YEAR(expense_date) = :y',
-            ['a' => $apartmentId, 'y' => $year]
+
+        /*
+         * A half-open date range rather than YEAR(expense_date) = :year.
+         *
+         * Wrapping the column in YEAR() hides it from the index, so every single
+         * expense creation scanned the whole table for that flat. Comparing the
+         * bare column also keeps the comparison textual on both sides, which
+         * matters: comparing YEAR()'s integer result against a bound parameter
+         * silently matches nothing under PDO_SQLite, where integers are bound as
+         * text. ISO dates sort lexicographically, so the range is exact.
+         */
+        $n = (int) Database::value(
+            'SELECT COUNT(*) FROM expenses
+              WHERE apartment_id = :a
+                AND expense_date >= :from
+                AND expense_date < :to',
+            [
+                'a'    => $apartmentId,
+                'from' => $year . '-01-01',
+                'to'   => ($year + 1) . '-01-01',
+            ]
         ) + 1;
+
         return sprintf('EX-%d-%06d', $year, $n);
     }
 

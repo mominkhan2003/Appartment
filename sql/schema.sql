@@ -443,6 +443,8 @@ CREATE TABLE `expenses` (
   `expense_date`   DATE         NOT NULL,
   `receipt_ref`    VARCHAR(255) NULL,
   `is_meal_related` TINYINT(1)  NOT NULL DEFAULT 0,
+  `paid_from_fund`  TINYINT(1)  NOT NULL DEFAULT 0
+                    COMMENT '1 = drawn from the shared house fund, not from a member''s own pocket. Excluded from vw_balance_sheet, accounted in vw_house_fund.',
   `is_disputed`    TINYINT(1)   NOT NULL DEFAULT 0,
   `dispute_note`   VARCHAR(500) NULL,
   `is_deleted`     TINYINT(1)   NOT NULL DEFAULT 0 COMMENT 'Soft delete for audit.',
@@ -528,7 +530,50 @@ CREATE TABLE `settlements` (
 
 
 -- ===========================================================================
---  18. chore_areas — a cleanable zone + its rotation rule
+--  18. contributions — cash handed over to the shared house fund
+-- ---------------------------------------------------------------------------
+--  The apartment keeps physical cash for groceries and bills. Residents pay
+--  into it, the admin spends from it, and each member's share of what was
+--  bought is known. This is deliberately NOT the settlements table: a
+--  settlement clears one person's debt to another, whereas a contribution
+--  moves money into a pool that everyone then draws from. vw_balance_sheet
+--  excludes fund-paid expenses, so contributions never reach the pairwise
+--  settle board -- vw_house_fund owns that arithmetic instead.
+-- ===========================================================================
+CREATE TABLE `contributions` (
+  `id`             INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `apartment_id`   INT UNSIGNED NOT NULL,
+  `from_user_id`   INT UNSIGNED NOT NULL COMMENT 'Resident who handed the cash over.',
+  `to_user_id`     INT UNSIGNED NULL COMMENT 'Custodian who received it; NULL = house fund.',
+  `amount`         DECIMAL(12,2) NOT NULL CHECK (`amount` > 0),
+  `method`         ENUM('cash','bkash','nagad','bank','other') NOT NULL DEFAULT 'cash',
+  `reference`      VARCHAR(120) NULL,
+  `note`           VARCHAR(500) NULL,
+  `period_key`     VARCHAR(7)   NULL COMMENT 'YYYY-MM the collection this belongs to.',
+  `collected_by`   INT UNSIGNED NULL COMMENT 'Set when recorded during a collection.',
+  `contributed_on` DATE         NOT NULL,
+  `created_by`     INT UNSIGNED NULL,
+  `created_at`     TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_contrib_apartment` (`apartment_id`, `contributed_on`),
+  KEY `idx_contrib_from`      (`from_user_id`, `contributed_on`),
+  KEY `idx_contrib_period`    (`apartment_id`, `period_key`),
+  CONSTRAINT `fk_contrib_apartment` FOREIGN KEY (`apartment_id`)
+    REFERENCES `apartments` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_contrib_from` FOREIGN KEY (`from_user_id`)
+    REFERENCES `users` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_contrib_to` FOREIGN KEY (`to_user_id`)
+    REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_contrib_collected` FOREIGN KEY (`collected_by`)
+    REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_contrib_creator` FOREIGN KEY (`created_by`)
+    REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='Cash into the shared fund. Fund balance = SUM(amount) - fund-paid expenses.';
+
+
+-- ===========================================================================
+--  19. chore_areas — a cleanable zone + its rotation rule
 -- ===========================================================================
 CREATE TABLE `chore_areas` (
   `id`              INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -566,7 +611,7 @@ CREATE TABLE `chore_areas` (
 
 
 -- ===========================================================================
---  19. chore_tasks — the generated rotation instances
+--  20. chore_tasks - the generated rotation instances
 --     One row per (area, date, assignee). Re-computable & idempotent.
 -- ===========================================================================
 CREATE TABLE `chore_tasks` (
@@ -601,7 +646,7 @@ CREATE TABLE `chore_tasks` (
 
 
 -- ===========================================================================
---  20. offboarding_tasks — departure checklist gate
+--  21. offboarding_tasks - departure checklist gate
 -- ===========================================================================
 CREATE TABLE `offboarding_tasks` (
   `id`           INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -625,7 +670,7 @@ CREATE TABLE `offboarding_tasks` (
 
 
 -- ===========================================================================
---  21. announcements — notice board / broadcast
+--  22. announcements - notice board / broadcast
 -- ===========================================================================
 CREATE TABLE `announcements` (
   `id`           INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -659,7 +704,7 @@ CREATE TABLE `announcements` (
 
 
 -- ===========================================================================
---  22. announcement_reads
+--  23. announcement_reads
 -- ===========================================================================
 CREATE TABLE `announcement_reads` (
   `announcement_id` INT UNSIGNED NOT NULL,
@@ -675,7 +720,7 @@ CREATE TABLE `announcement_reads` (
 
 
 -- ===========================================================================
---  23. reminders — in-app notification badges
+--  24. reminders - in-app notification badges
 -- ===========================================================================
 CREATE TABLE `reminders` (
   `id`           INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -701,7 +746,7 @@ CREATE TABLE `reminders` (
 
 
 -- ===========================================================================
---  24. activity_log — audit trail
+--  25. activity_log - audit trail
 -- ===========================================================================
 CREATE TABLE `activity_log` (
   `id`           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -750,13 +795,19 @@ FROM `users` u
 LEFT JOIN `rooms`       r ON r.`id` = u.`room_id`
 LEFT JOIN `duty_groups` g ON g.`id` = u.`duty_group_id`
 LEFT JOIN (
+  -- paid_from_fund = 1 is excluded on purpose. That money came out of the
+  -- shared pot, not out of the member's own pocket, so crediting it here would
+  -- make the shopper look like a creditor for money the household owes.
+  -- vw_house_fund accounts for those rows instead.
   SELECT `paid_by_user_id` AS uid, SUM(`amount`) AS total_paid
-  FROM `expenses` WHERE `is_deleted` = 0 GROUP BY `paid_by_user_id`
+  FROM `expenses` WHERE `is_deleted` = 0 AND `paid_from_fund` = 0
+  GROUP BY `paid_by_user_id`
 ) p ON p.`uid` = u.`id`
 LEFT JOIN (
   SELECT `user_id` AS uid, SUM(`share_amount`) AS total_owed
   FROM `expense_splits` es
-  JOIN `expenses` e ON e.`id` = es.`expense_id` AND e.`is_deleted` = 0
+  JOIN `expenses` e ON e.`id` = es.`expense_id`
+                  AND e.`is_deleted` = 0 AND e.`paid_from_fund` = 0
   GROUP BY `user_id`
 ) s ON s.`uid` = u.`id`
 LEFT JOIN (
@@ -825,3 +876,65 @@ SELECT
 FROM `meals` m
 LEFT JOIN `meal_participants` mp ON mp.`meal_id` = m.`id`
 GROUP BY m.`id`, m.`meal_plan_id`, m.`day_of_week`, m.`meal_type`, m.`menu_title`;
+
+
+-- ===========================================================================
+--  vw_house_fund -- shared pot: what came in, what was spent, who owes what
+-- ---------------------------------------------------------------------------
+--  One row per active member. `outstanding` is the collection figure: what
+--  this member's share of fund-paid expenses comes to, less whatever they have
+--  already handed over. It is deliberately independent of vw_balance_sheet,
+--  which excludes fund-paid rows entirely, so a member can be square on the
+--  pairwise settle board while still owing the pot for groceries.
+-- ===========================================================================
+DROP VIEW IF EXISTS `vw_house_fund`;
+CREATE VIEW `vw_house_fund` AS
+SELECT
+  u.`apartment_id`,
+  u.`id`                  AS `user_id`,
+  u.`full_name`,
+  u.`participant_code`,
+  u.`status`,
+  r.`code`                AS `room_code`,
+  COALESCE(owed.`share_owed`, 0)    AS `share_owed`,
+  COALESCE(paid.`contributed`, 0)   AS `contributed`,
+  COALESCE(owed.`share_owed`, 0) - COALESCE(paid.`contributed`, 0)
+                                        AS `outstanding`
+FROM `users` u
+LEFT JOIN `rooms` r ON r.`id` = u.`room_id`
+LEFT JOIN (
+  SELECT es.`user_id` AS uid, SUM(es.`share_amount`) AS share_owed
+  FROM `expense_splits` es
+  JOIN `expenses` e ON e.`id` = es.`expense_id`
+                  AND e.`is_deleted` = 0 AND e.`paid_from_fund` = 1
+  GROUP BY es.`user_id`
+) owed ON owed.`uid` = u.`id`
+LEFT JOIN (
+  SELECT `from_user_id` AS uid, SUM(`amount`) AS contributed
+  FROM `contributions`
+  GROUP BY `from_user_id`
+) paid ON paid.`uid` = u.`id`
+WHERE u.`status` IN ('active', 'invited');
+
+
+-- ===========================================================================
+--  vw_fund_totals -- the pot itself, one row per apartment
+-- ---------------------------------------------------------------------------
+DROP VIEW IF EXISTS `vw_fund_totals`;
+CREATE VIEW `vw_fund_totals` AS
+SELECT
+  a.`id`                    AS `apartment_id`,
+  COALESCE(ci.`total_in`, 0)    AS `total_contributed`,
+  COALESCE(co.`total_out`, 0)   AS `total_spent`,
+  COALESCE(ci.`total_in`, 0) - COALESCE(co.`total_out`, 0) AS `balance`
+FROM `apartments` a
+LEFT JOIN (
+  SELECT `apartment_id`, SUM(`amount`) AS total_in
+  FROM `contributions` GROUP BY `apartment_id`
+) ci ON ci.`apartment_id` = a.`id`
+LEFT JOIN (
+  SELECT `apartment_id`, SUM(`amount`) AS total_out
+  FROM `expenses`
+  WHERE `is_deleted` = 0 AND `paid_from_fund` = 1
+  GROUP BY `apartment_id`
+) co ON co.`apartment_id` = a.`id`;
