@@ -155,4 +155,4 @@ $flashes = take_flashes();
             <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
           </div>
         <?php endforeach; ?>
-      <?php endif; ?>\r\n<?php if (isset(\['ref']) && \['ref'] === 'back') { /* preserve */ } ?>\r\n
+      <?php endif; ?>
