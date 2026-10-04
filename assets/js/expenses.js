@@ -26,6 +26,19 @@
   let settleFor = null;      // the transfer currently being recorded
 
   /* ------------------------------------------------------------------ */
+  /*  Delete permission                                                   */
+  /* ------------------------------------------------------------------ */
+
+  // Mirrors ExpenseService::delete(): an admin, the person who paid, or the
+  // person who logged the expense may all remove it. Hiding the button from
+  // admins and creators made deletion look broken even though the API allows it.
+  function canDelete(expense) {
+    if (me?.role === 'admin') return true;
+    return Number(expense.paid_by_user_id) === me?.id
+        || Number(expense.created_by) === me?.id;
+  }
+
+  /* ------------------------------------------------------------------ */
   /*  Filters                                                            */
   /* ------------------------------------------------------------------ */
 
@@ -159,7 +172,7 @@
           <span class="text-faint" style="font-size:.78rem">
             Added by ${esc(e.created_by_name || e.paid_by_name)}
           </span>
-          ${Number(e.paid_by_user_id) === me.id
+          ${canDelete(e)
             ? `<button class="btn btn-sm btn-outline-danger" data-delete="${e.id}"
                        data-confirm-title="Delete this expense?"
                        data-confirm-text="It will disappear from everyone's balances. This cannot be undone."

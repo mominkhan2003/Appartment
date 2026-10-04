@@ -273,22 +273,46 @@ final class Database
     /*  Transactions                                                     */
     /* ---------------------------------------------------------------- */
 
+    /**
+     * Nesting depth.
+     *
+     * MySQL has no nested transactions, so an inner transaction() cannot open
+     * one of its own -- it has to join the outer one. Without a counter the
+     * inner commit() would end the outer transaction early, and the outer
+     * rollback() would then find nothing to roll back and silently do nothing.
+     * That is how a "all or nothing" wipe ends up half applied while the caller
+     * is told it failed, so the depth is tracked explicitly: only the outermost
+     * pair touches the connection.
+     */
+    private static int $depth = 0;
+
     public static function begin(): void
     {
-        if (!self::conn()->inTransaction()) {
+        if (self::$depth === 0 && !self::conn()->inTransaction()) {
             self::conn()->beginTransaction();
         }
+        self::$depth++;
     }
 
     public static function commit(): void
     {
+        if (self::$depth > 1) {
+            self::$depth--;
+            return;
+        }
+        self::$depth = 0;
         if (self::conn()->inTransaction()) {
             self::conn()->commit();
         }
     }
 
+    /**
+     * Abandon the whole nest. An exception inside any level must undo every
+     * level, not just its own, so the depth is reset rather than decremented.
+     */
     public static function rollback(): void
     {
+        self::$depth = 0;
         if (self::conn()->inTransaction()) {
             self::conn()->rollBack();
         }

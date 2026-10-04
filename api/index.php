@@ -115,7 +115,7 @@ $ROUTES = [
 
     // ---- dashboard -------------------------------------------------------
     'dashboard'         => ['GET',  'auth',   fn() => DashboardService::forUser(
-        Auth::apartmentId(), (int) (int) Auth::id())],
+        Auth::apartmentId(), (int) Auth::id())],
     'activity'          => ['GET',  'auth',   fn(array $i) => ActivityLog::feed(
         Auth::apartmentId(), (int) ($i['limit'] ?? 40), (int) ($i['offset'] ?? 0))],
 
@@ -156,7 +156,7 @@ $ROUTES = [
 
     // ---- meals -----------------------------------------------------------
     'meal.week'         => ['GET',  'auth',   fn(array $i) => MealService::week(
-        Auth::apartmentId(), (string) ($i['date'] ?? DutyScheduler::today()), (int) (int) Auth::id())],
+        Auth::apartmentId(), (string) ($i['date'] ?? DutyScheduler::today()), (int) Auth::id())],
     'meal.set_menu'     => ['POST', 'auth',   fn(array $i) => MealService::setMenu(
         (int) $i['meal_id'], (int) Auth::id(), Auth::isAdmin(), $i['title'] ?? null, $i['notes'] ?? null), ['meal_id']],
     'meal.suggest'      => ['POST', 'auth',   fn(array $i) => MealService::suggest(
@@ -175,7 +175,7 @@ $ROUTES = [
     'meal.grocery'      => ['GET',  'auth',   fn(array $i) => MealService::groceryList(
         Auth::apartmentId(), (string) ($i['date'] ?? DutyScheduler::today()))],
     'meal.set_status'   => ['POST', 'admin',  fn(array $i) => MealService::setStatus(
-        (int) $i['plan_id'], (string) $i['status'], (int) (int) Auth::id()), ['plan_id', 'status']],
+        (int) $i['plan_id'], (string) $i['status'], (int) Auth::id()), ['plan_id', 'status']],
 
     // ---- expenses --------------------------------------------------------
 'expense.list' => ['GET',  'auth',   fn(array $i) => ExpenseService::listFor(
@@ -191,7 +191,7 @@ $ROUTES = [
     'expense.create'    => ['POST', 'auth',   fn(array $i) => ExpenseService::create(
         Auth::apartmentId(), (int) Auth::id(), $i), ['title', 'amount', 'paid_by_user_id']],
     'expense.delete'    => ['POST', 'auth',   function (array $i): array {
-        ExpenseService::delete((int) $i['id'], (int) (int) Auth::id());
+        ExpenseService::delete((int) $i['id'], (int) Auth::id());
         return ['deleted' => true];
     }, ['id']],
     'expense.dispute'   => ['POST', 'auth',   fn(array $i) => ExpenseService::flagDispute(
@@ -237,7 +237,7 @@ $ROUTES = [
     'resident.offboard' => ['POST', 'admin',  fn(array $i) => ResidentService::completeOffboarding(
         Auth::apartmentId(), (int) $i['user_id'], (int) Auth::id(), !empty($i['force'])), ['user_id']],
     'resident.offboard_start' => ['POST', 'admin', fn(array $i) => ResidentService::beginOffboarding(
-        Auth::apartmentId(), (int) $i['user_id'], (int) (int) Auth::id()), ['user_id']],
+        Auth::apartmentId(), (int) $i['user_id'], (int) Auth::id()), ['user_id']],
     'resident.offboard_view'  => ['GET', 'auth', fn(array $i) => ResidentService::offboarding(
         Auth::apartmentId(), (int) ($i['user_id'] ?? (int) Auth::id()))],
     'resident.checklist_toggle' => ['POST', 'admin', function (array $i): array {
@@ -253,29 +253,29 @@ $ROUTES = [
     'notice.list'       => ['GET',  'auth',   fn(array $i) => NoticeBoard::feed(
         Auth::apartmentId(), (int) Auth::id(), (int) ($i['limit'] ?? 30))],
     'notice.find'       => ['GET',  'auth',   fn(array $i) => NoticeBoard::find(
-        Auth::apartmentId(), (int) $i['id'], (int) (int) Auth::id()), ['id']],
+        Auth::apartmentId(), (int) $i['id'], (int) Auth::id()), ['id']],
     'notice.create'     => ['POST', 'auth',   fn(array $i) => NoticeBoard::create(
         Auth::apartmentId(), (int) Auth::id(), $i), ['title']],
     'notice.pin'        => ['POST', 'admin',  fn(array $i) => NoticeBoard::pin(
         Auth::apartmentId(), (int) $i['id'], !empty($i['pinned']), $i['until'] ?? null), ['id']],
     'notice.delete'     => ['POST', 'auth',   function (array $i): array {
-        NoticeBoard::remove(Auth::apartmentId(), (int) $i['id'], (int) (int) Auth::id());
+        NoticeBoard::remove(Auth::apartmentId(), (int) $i['id'], (int) Auth::id());
         return ['deleted' => true];
     }, ['id']],
     'notice.read'       => ['POST', 'auth',   function (array $i): array {
-        NoticeBoard::markRead(Auth::apartmentId(), (int) $i['id'], (int) (int) Auth::id());
+        NoticeBoard::markRead(Auth::apartmentId(), (int) $i['id'], (int) Auth::id());
         return ['ok' => true];
     }, ['id']],
     'notice.read_all'   => ['POST', 'auth',   fn() => ['marked' => NoticeBoard::markAllRead(
-        Auth::apartmentId(), (int) (int) Auth::id())]],
+        Auth::apartmentId(), (int) Auth::id())]],
 
     // ---- reminders -------------------------------------------------------
     'reminder.inbox'    => ['GET',  'auth',   fn(array $i) => Reminder::inbox(
         Auth::apartmentId(), (int) Auth::id(), (int) ($i['limit'] ?? 20))],
     'reminder.read'     => ['POST', 'auth',   fn(array $i) => ['ok' => Reminder::markRead(
-        (int) $i['id'], (int) (int) Auth::id())]],
+        (int) $i['id'], (int) Auth::id())]],
     'reminder.read_all' => ['POST', 'auth',   fn() => ['marked' => Reminder::markAllRead(
-        Auth::apartmentId(), (int) (int) Auth::id())]],
+        Auth::apartmentId(), (int) Auth::id())]],
 
     // ---- diagnostics -----------------------------------------------------
     // The point of these is that a broken page can still explain itself.
