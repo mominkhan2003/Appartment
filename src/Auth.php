@@ -309,19 +309,6 @@ final class Auth
 
 
     /** Collision-checked, human-typeable id such as "FM-7QRT2M". */
-    public static function getClientIp(): ?string
-    {
-        $headers = ["HTTP_CF_CONNECTING_IP", "HTTP_X_FORWARDED_FOR", "HTTP_X_REAL_IP", "HTTP_CLIENT_IP", "REMOTE_ADDR"];
-        foreach ($headers as $h) {
-            if (!empty($_SERVER[$h])) {
-                $ip = trim(explode(",", (string)$_SERVER[$h])[0]);
-                if (filter_var($ip, FILTER_VALIDATE_IP)) {
-                    return $ip;
-                }
-            }
-        }
-        return null;
-    }
 
     /* ------------------------------------------------------------------ */
     /*  Password policy                                                   */
