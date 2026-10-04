@@ -96,6 +96,41 @@ if (PHP_SAPI !== 'cli' && session_status() !== PHP_SESSION_ACTIVE) {
         'secure'   => (($_SERVER['HTTPS'] ?? '') === 'on'),
     ]);
     session_start();
+    // Session activity and timeout
+    if (isset($_SESSION)) {
+        if (!isset($_SESSION['last_activity'])) {
+        // Check IP change
+        if (class_exists('Auth')) {
+            $currentIp = Auth::getClientIp();
+            if (isset($_SESSION['client_ip']) && $_SESSION['client_ip'] !== $currentIp && $currentIp !== null) {
+                session_unset(); session_destroy();
+                if (!headers_sent()) { $base = detect_base_url(); header('Location: ' . ($base===''?'/':$base) . '/login.php'); exit; }
+            }
+            $_SESSION['client_ip'] = $currentIp;
+        }
+        $_SESSION['last_activity'] = time();
+        }
+        $idle_timeout = (int) config('app.idle_timeout', 1800);
+        if ((time() - $_SESSION['last_activity']) > $idle_timeout) {
+            session_unset();
+            session_destroy();
+            if (!headers_sent()) {
+                $base = detect_base_url();
+                header('Location: ' . ($base === '' ? '/' : $base) . '/login.php');
+                exit;
+            }
+        }
+        // Check IP change
+        if (class_exists('Auth')) {
+            $currentIp = Auth::getClientIp();
+            if (isset($_SESSION['client_ip']) && $_SESSION['client_ip'] !== $currentIp && $currentIp !== null) {
+                session_unset(); session_destroy();
+                if (!headers_sent()) { $base = detect_base_url(); header('Location: ' . ($base===''?'/':$base) . '/login.php'); exit; }
+            }
+            $_SESSION['client_ip'] = $currentIp;
+        }
+        $_SESSION['last_activity'] = time();
+    }
 }
 
 /* -------------------------------------------------------------------------- */

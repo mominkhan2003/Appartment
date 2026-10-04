@@ -198,6 +198,7 @@ $ROUTES = [
         (int) $i['id'], (int) Auth::id(), $i['note'] ?? null, Auth::isAdmin()), ['id']],
     'expense.categories'=> ['GET',  'auth',   fn() => ExpenseService::categories(Auth::apartmentId())],
     'expense.audit'     => ['GET',  'admin',  fn() => BalanceEngine::audit(Auth::apartmentId())],
+    'report.summary'    => ['GET',  'auth',   fn() => BalanceEngine::report(Auth::apartmentId())],
 
     // ---- ledger / settlement --------------------------------------------
     'balance.ledger'    => ['GET',  'auth',   fn(array $i) => BalanceEngine::ledger(
@@ -214,6 +215,7 @@ $ROUTES = [
     'balance.settle'    => ['POST', 'auth',   fn(array $i) => ExpenseService::settle(
         Auth::apartmentId(), (int) Auth::id(), $i), ['from_user_id', 'to_user_id', 'amount']],
     'balance.settlements' => ['GET','auth',   fn(array $i) => ExpenseService::settlementsFor(
+    'deposit.add'       => ['POST', 'auth',   fn(array $i) => ExpenseService::deposit(Auth::apartmentId(), Auth::id(), $i)],
         Auth::apartmentId(), (int) ($i['limit'] ?? 40))],
 
     // ---- residents -------------------------------------------------------

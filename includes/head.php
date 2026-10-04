@@ -75,6 +75,7 @@ $flashes = take_flashes();
       <div class="fm-nav-label">Flat</div>
 
       <a class="fm-nav-link <?= $nav === 'notices' ? 'active' : '' ?>" href="<?= e(base_url('notices.php')) ?>">
+          <li class="nav-item"><a class="nav-link <?= $nav === "reports" ? "active" : "" ?>" href="<?= base_url("reports.php") ?>"><i class="bi bi-file-earmark-bar-graph"></i> Reports</a></li>
         <i class="bi bi-megaphone-fill"></i> Notices
         <span class="fm-count d-none" data-nav-count="notices"></span>
       </a>
@@ -140,7 +141,7 @@ $flashes = take_flashes();
       <div class="dropdown-menu dropdown-menu-end fm-card" style="min-width:320px" data-reminder-box>
         <div class="fm-card-head"><h3>Reminders</h3></div>
         <div class="fm-card-body tight" data-reminder-list>
-          <div class="text-muted-2 p-3 text-center">Loading…</div>
+          <div class="text-muted-2 p-3 text-center">Loadingâ€¦</div>
         </div>
       </div>
     </header>

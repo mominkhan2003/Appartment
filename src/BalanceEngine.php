@@ -115,6 +115,17 @@ final class BalanceEngine
             'debtors'   => $debtors,
             'settled'   => $settled,
             'summary'   => self::summary($apartmentId),
+
+    public static function report(int $apartmentId): array
+    {
+        $balances = self::memberBalances($apartmentId);
+        $totalExpenses = (float) Database::value('SELECT COALESCE(SUM(amount),0) FROM expenses WHERE apartment_id=:a AND is_deleted=0', ['a'=>$apartmentId]);
+        $totalSettlements = (float) Database::value('SELECT COALESCE(SUM(amount),0) FROM settlements WHERE apartment_id=:a', ['a'=>$apartmentId]);
+        $recent = Database::all('SELECT * FROM activity_log WHERE apartment_id=:a ORDER BY created_at DESC LIMIT 10', ['a'=>$apartmentId]);
+        $creditors = array_values(array_filter($balances, fn($b)=>$b['direction']==='credit'));
+        $debtors = array_values(array_filter($balances, fn($b)=>$b['direction']==='debit'));
+        return ['balances'=>array_values($balances), 'total_expenses'=>$totalExpenses, 'total_settlements'=>$totalSettlements, 'creditors'=>$creditors, 'debtors'=>$debtors, 'recent'=>$recent];
+    }
         ];
     }
 

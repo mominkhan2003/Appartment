@@ -12,7 +12,7 @@ declare(strict_types=1);
 return [
 
     /* ------------------------------------------------------------------ */
-    /*  DATABASE  â€”  DEMO CONNECTION CREDENTIALS                              */
+    /*  DATABASE  —  DEMO CONNECTION CREDENTIALS                              */
     /* ------------------------------------------------------------------ */
     'db' => [
         'host'     => 'premium281.web-hosting.com',
@@ -47,12 +47,13 @@ return [
         // app is reached through a rewrite that hides the real path.
         'base_url'      => '',
 
-        'currency'      => 'à§³',               // BDT
-        'currency_code' => 'BDT',
+        'currency'      => '€',               // EUR
+        'currency_code' => 'EUR',
 
         // Session tuning
         'session_name'  => 'FLATMATE_SESSID',
         'session_life'  => 60 * 60 * 24 * 14,   // 14 days "remember me"
+        'idle_timeout'  => 60 * 30,            // 30 min idle
 
         // Pagination
         'per_page'      => 20,
