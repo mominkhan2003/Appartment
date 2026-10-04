@@ -150,9 +150,12 @@
   }
 
   function renderMeals(d) {
+    const host = $('[data-meal-day]');
+    if (!host) return;
+
     const rows = d.meals.today || [];
     if (!rows.length) {
-      $('[data-meal-day]').outerHTML = `<div class="fm-empty">
+      host.innerHTML = `<div class="fm-empty">
         <i class="bi bi-calendar-x"></i><h3>No plan for today</h3>
         <p>An admin has not published a meal plan for this week yet.</p></div>`;
       return;
@@ -165,7 +168,7 @@
         ${m.cook_name ? `<span class="fm-slot-cook">· ${esc(m.cook_name)}</span>` : ''}
       </div>`).join('');
 
-    $('[data-meal-day]').outerHTML = `
+    host.innerHTML = `
       <div class="fm-meal-row is-today">
         <div class="fm-meal-day today">${esc(Fmt.date(d.today, { weekday: 'short' }))}
           <small>${esc(Fmt.date(d.today))}</small></div>

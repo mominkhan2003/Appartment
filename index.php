@@ -84,10 +84,12 @@ require __DIR__ . '/includes/head.php';
           <a class="btn btn-sm btn-outline-secondary" href="<?= e(base_url('meals.php')) ?>">Planner</a>
         </div>
       </div>
-      <div class="fm-meal-row" data-meal-day>
-        <div class="fm-meal-day">…</div>
-        <div class="fm-slot" style="flex:1">
-          <div class="fm-skeleton" style="height:2rem;width:100%"></div>
+      <div data-meal-day>
+        <div class="fm-meal-row">
+          <div class="fm-meal-day">&hellip;</div>
+          <div class="fm-slot" style="flex:1">
+            <div class="fm-skeleton" style="height:2rem;width:100%"></div>
+          </div>
         </div>
       </div>
     </section>
