@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/src/Bootstrap.php';
-require_login();
+require_admin();
 
 $pageTitle   = 'Reports';
 $pageIcon    = 'bi-file-earmark-bar-graph';
@@ -62,7 +62,7 @@ require __DIR__ . '/includes/head.php';
     `;
     $('#activity').innerHTML = (r.recent || []).map(a => `
       <div class="py-2 border-bottom small">
-        <div>${esc(a.message || '')}</div>
+        <div>${esc(a.summary || '')}</div>
         <div class="text-muted">${Fmt.date(String(a.created_at).slice(0,19).replace('T',' '))}</div>
       </div>
     `).join('') || '<div class="text-muted">No activity yet</div>';

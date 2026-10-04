@@ -412,7 +412,7 @@ public static function invites(int $apartmentId): array
     {
         $items = [
             ['Confirm the move-out date with the owner',            'admin',    1, 1],
-            ['Settle the outstanding shared balance to ' . config('app.currency', '৳') . '0.00', 'finance', 1, 2],
+            ['Settle the outstanding shared balance to ' . config('app.currency', '\u{20AC}') . '0.00', 'finance', 1, 2],
             ['Return the room key and the gate fob',                 'property', 1, 3],
             ['Clear personal items from the shared fridge and shelves', 'property', 0, 4],
             ['Final reading of the electricity and gas meters',     'admin',    1, 5],

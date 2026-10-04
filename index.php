@@ -182,7 +182,7 @@ require __DIR__ . '/includes/head.php';
             <div class="col-6">
               <label class="form-label" for="q-amount">Amount</label>
               <div class="input-group">
-                <span class="input-group-text">৳</span>
+                <span class="input-group-text"><?= e((string) config('app.currency', '\u{20AC}')) ?></span>
                 <input class="form-control" id="q-amount" name="amount" required
                        inputmode="decimal" placeholder="0.00">
               </div>

@@ -265,6 +265,12 @@ const App = (() => {
     document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach((el) => {
       new bootstrap.Tooltip(el);
     });
+
+    /* Adopt the server-configured currency before any page renders money,
+       so every Fmt.money() call on this page uses the right symbol. */
+    API.get('meta')
+      .then((m) => m && Fmt.setCurrency(m.currency))
+      .catch(() => { /* keep the built-in default */ });
   });
 
   return { toast, openModal, closeModal, confirmModal, promptModal, guard, showErrors, clearErrors };

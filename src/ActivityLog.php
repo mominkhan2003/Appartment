@@ -11,7 +11,7 @@ declare(strict_types=1);
 
 final class ActivityLog
 {
-    /** Record an auditable event. Never throws â€” logging must not break a request. */
+    /** Record an auditable event. Never throws — logging must not break a request. */
     public static function record(
         string $action,
         ?string $entity = null,

@@ -223,7 +223,7 @@ final class Database
     }
 
     /**
-     * INSERT IGNORE â€” returns the number of rows actually inserted
+     * INSERT IGNORE — returns the number of rows actually inserted
      * (0 when the row already existed and was skipped).
      */
     public static function insertOrIgnore(string $table, array $data): int

@@ -163,22 +163,32 @@ const API = (() => {
    Small formatting / DOM helpers shared by every page.
    ========================================================================== */
 const Fmt = {
-  /** 1234 -> "৳ 1,234.00" */
-  money(cents, { sign = false, symbol = '৳' } = {}) {
+  /* Set from the server's `meta` response so the symbol is never hardcoded
+     here. Falls back to the euro sign the app ships with. */
+  currency: '\u20AC',
+
+  /** Adopt the currency the server is configured for. */
+  setCurrency(symbol) {
+    if (typeof symbol === 'string' && symbol.trim()) this.currency = symbol.trim();
+    return this.currency;
+  },
+
+  /** 1234 -> "€ 1,234.00" */
+  money(cents, { sign = false, symbol } = {}) {
     const n = (Number(cents) || 0) / 100;
     const s = Math.abs(n).toLocaleString('en-US', {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     });
     const prefix = n < 0 ? '-' : (sign && n > 0 ? '+' : '');
-    return `${prefix}${symbol} ${s}`;
+    return `${prefix}${symbol || Fmt.currency} ${s}`;
   },
 
-  /** Compact form for stat tiles: ৳ 12.4k */
+  /** Compact form for stat tiles: € 12.4k */
   moneyShort(cents) {
     const n = Math.abs(Number(cents) || 0) / 100;
-    if (n >= 100000) return `৳ ${(n / 100000).toFixed(1)}L`;
-    if (n >= 1000)   return `৳ ${(n / 1000).toFixed(1)}k`;
+    if (n >= 100000) return `${Fmt.currency} ${(n / 100000).toFixed(1)}L`;
+    if (n >= 1000)   return `${Fmt.currency} ${(n / 1000).toFixed(1)}k`;
     return Fmt.money(cents);
   },
 

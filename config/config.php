@@ -12,7 +12,7 @@ declare(strict_types=1);
 return [
 
     /* ------------------------------------------------------------------ */
-    /*  DATABASE  —  DEMO CONNECTION CREDENTIALS                              */
+    /*  DATABASE â€” DEMO CONNECTION CREDENTIALS                              */
     /* ------------------------------------------------------------------ */
     'db' => [
         'host'     => 'premium281.web-hosting.com',
@@ -47,7 +47,7 @@ return [
         // app is reached through a rewrite that hides the real path.
         'base_url'      => '',
 
-        'currency'      => '€',               // EUR
+        'currency'      => "\u{20AC}",               // EUR (â‚¬)
         'currency_code' => 'EUR',
 
         // Session tuning

@@ -9,7 +9,7 @@
  *
  *   Money::toCents('12.34')          -> 1234
  *   Money::toAmount(1234)           -> 12.34
- *   Money::format(1234)             -> '৳12.34'
+ *   Money::format(1234)             -> '\u{20AC}12.34'
  *   Money::allocate(1000, 3)        -> [334, 333, 333]   (sums to 1000)
  */
 
@@ -36,11 +36,11 @@ final class Money
         return round($cents / 100, 2);
     }
 
-    /** Human string, e.g. "৳1,234.50". */
+    /** Human string, e.g. "\u{20AC}1,234.50". */
     public static function format(int $cents, bool $withSymbol = true): string
     {
         $n = number_format(self::toAmount($cents), 2);
-        return $withSymbol ? config('app.currency', '৳') . $n : $n;
+        return $withSymbol ? config('app.currency', '\u{20AC}') . $n : $n;
     }
 
     /**

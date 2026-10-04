@@ -264,7 +264,7 @@ final class NoticeBoard
             && ($n['pinned_until'] === null || $n['pinned_until'] >= gmdate('Y-m-d'));
         $n['is_read']     = !empty($n['read_at']);
         $n['ago']         = ActivityLog::ago((string) $n['created_at']);
-        $n['excerpt']     = mb_strimwidth(strip_tags((string) $n['body']), 0, 140, 'â€¦');
+        $n['excerpt']     = mb_strimwidth(strip_tags((string) $n['body']), 0, 140, "\u{2026}");
         $n['audience_label'] = match ($n['audience']) {
             'admins'     => 'Admins only',
             'room'       => 'Room ' . ($n['audience_room_code'] ?? '?'),

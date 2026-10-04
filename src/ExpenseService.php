@@ -100,7 +100,7 @@ final class ExpenseService
                 'title'           => trim((string) $input['title']),
                 'description'     => $input['description'] ?? null,
                 'amount'          => Money::toAmount($amountCents),
-                'currency_code'   => (string) config('app.currency_code', 'BDT'),
+                'currency_code'   => (string) config('app.currency_code', 'EUR'),
                 'paid_by_user_id' => $payer,
                 'category_id'     => $categoryId,
                 'split_type'      => $splitType,
@@ -596,46 +596,6 @@ final class ExpenseService
     }
 
     public static function settlement(int $id): array
-
-    public static function deposit(int $apartmentId, int $actorId, array $input): array
-    {
-        $amount = Money::toCents($input['amount'] ?? 0);
-        if ($amount <= 0) {
-            throw new ValidationException(['amount' => 'Amount must be greater than zero.']);
-        }
-        $userId = (int) ($input['user_id'] ?? $actorId);
-        $active = self::activeResidentIds($apartmentId);
-        if (!in_array($userId, $active, true)) {
-            throw new ValidationException(['user_id' => 'User must be active.']);
-        }
-        return Database::transaction(static function () use ($apartmentId, $actorId, $input, $amount, $userId) {
-            $expenseId = Database::insert('expenses', [
-                'apartment_id'    => $apartmentId,
-                'reference_no'    => self::nextReference($apartmentId),
-                'title'           => trim((string) ($input['title'] ?? 'Deposit/Contribution')),
-                'description'     => $input['description'] ?? null,
-                'amount'          => Money::toAmount($amount),
-                'currency_code'   => (string) config('app.currency_code', 'EUR'),
-                'paid_by_user_id' => $userId,
-                'category_id'     => null,
-                'split_type'      => 'equal',
-                'split_meta'      => null,
-                'expense_date'    => (string) ($input['date'] ?? gmdate('Y-m-d')),
-                'is_meal_related' => 0,
-                'created_by'      => $actorId,
-            ]);
-            foreach (self::activeResidentIds($apartmentId) as $uid) {
-                Database::insert('expense_splits', [
-                    'expense_id'   => $expenseId,
-                    'user_id'      => $uid,
-                    'share_amount' => Money::toAmount(0),
-                    'weight'       => 1.0,
-                ]);
-            }
-            ActivityLog::record('deposit.added', 'expense', $expenseId, 'Deposit of ' . money($amount) . ' recorded', []);
-            return self::find($expenseId);
-        });
-    }
     {
         $row = Database::one(
             'SELECT s.*, f.full_name AS from_name, f.avatar_color AS from_avatar,
@@ -667,6 +627,7 @@ final class ExpenseService
             ))
         );
     }
+
 
     /* ================================================================== */
     /*  Helpers                                                            */

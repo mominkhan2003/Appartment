@@ -2,7 +2,7 @@
 
     <footer class="text-center text-faint pb-4" style="font-size:.75rem">
       <?= e(config('app.name', 'FlatMate')) ?> v<?= e(FLATMATE_VERSION) ?>
-      &middot; balances in <?= e(config('app.currency', '৳')) ?>
+      &middot; balances in <?= e(config('app.currency', '\u{20AC}')) ?>
       &middot; <span data-clock></span>
     </footer>
   </div><!-- /.fm-main -->

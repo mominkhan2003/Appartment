@@ -281,6 +281,61 @@ final class Auth
         return null;
     }
 
+    /* ------------------------------------------------------------------ */
+    /*  Session teardown                                                   */
+    /* ------------------------------------------------------------------ */
+
+    /**
+     * Drop the PHP session and clear its cookie without touching the
+     * persistent "remember me" token. Used when a session times out or the
+     * client IP changes, so the next sign-in is a full one.
+     */
+    public static function forgetSession(): void
+    {
+        $_SESSION = [];
+
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            if (!headers_sent()) {
+                $params = session_get_cookie_params();
+                setcookie(
+                    session_name() ?: (string) config('app.session_name', 'FLATMATE_SESSID'),
+                    '',
+                    [
+                        'expires'  => time() - 42000,
+                        'path'     => $params['path']     ?? '/',
+                        'domain'   => $params['domain']   ?? '',
+                        'secure'   => $params['secure']   ?? false,
+                        'httponly' => $params['httponly'] ?? true,
+                        'samesite' => $params['samesite'] ?? 'Lax',
+                    ]
+                );
+            }
+            session_destroy();
+        }
+
+        self::$user     = null;
+        self::$resolved = true;
+    }
+
+    public static function logout(): void
+    {
+        if (!empty($_COOKIE['flatmate_remember'])) {
+            Database::query(
+                'DELETE FROM sessions WHERE token_hash = :h',
+                ['h' => hash('sha256', (string) $_COOKIE['flatmate_remember'])]
+            );
+        }
+        setcookie('flatmate_remember', '', [
+            'expires'  => time() - 3600,
+            'path'     => '/',
+            'httponly' => true,
+            'samesite' => 'Lax',
+            'secure'   => (($_SERVER['HTTPS'] ?? '') === 'on'),
+        ]);
+
+        self::forgetSession();
+    }
+
     private static function issueRememberToken(int $userId): void
     {
         $raw  = bin2hex(random_bytes(32));
@@ -309,6 +364,27 @@ final class Auth
 
 
     /** Collision-checked, human-typeable id such as "FM-7QRT2M". */
+    public static function generateParticipantCode(): string
+    {
+        for ($attempt = 0; $attempt < 12; $attempt++) {
+            $suffix = '';
+            for ($i = 0; $i < 6; $i++) {
+                $suffix .= self::PARTICIPANT_ALPHABET[random_int(0, strlen(self::PARTICIPANT_ALPHABET) - 1)];
+            }
+            $code = 'FM-' . $suffix;
+
+            $exists = Database::value(
+                'SELECT 1 FROM users WHERE participant_code = :c',
+                ['c' => $code]
+            );
+            if ($exists === null) {
+                return $code;
+            }
+        }
+
+        // Deterministic fallback — effectively unreachable.
+        return 'FM-' . strtoupper(substr(bin2hex(random_bytes(6)), 0, 6));
+    }
 
     /* ------------------------------------------------------------------ */
     /*  Password policy                                                   */

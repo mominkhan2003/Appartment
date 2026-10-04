@@ -166,7 +166,7 @@ require __DIR__ . '/includes/head.php';
                      placeholder="e.g. Groceries for the week">
             </div>
             <div class="col-md-3 mb-2">
-              <label class="form-label" for="e-amount">Amount (<?= e((string) config('app.currency', 'BDT')) ?>)</label>
+              <label class="form-label" for="e-amount">Amount (<?= e((string) config('app.currency', '\u{20AC}')) ?>)</label>
               <input class="form-control" id="e-amount" name="amount" required
                      inputmode="decimal" placeholder="0.00">
             </div>
@@ -251,7 +251,7 @@ require __DIR__ . '/includes/head.php';
           <p class="text-faint" data-settle-summary></p>
 
           <div class="mb-2">
-            <label class="form-label" for="s-amount">Amount (<?= e((string) config('app.currency', 'BDT')) ?>)</label>
+            <label class="form-label" for="s-amount">Amount (<?= e((string) config('app.currency', '\u{20AC}')) ?>)</label>
             <input class="form-control" id="s-amount" name="amount" required inputmode="decimal">
           </div>
 

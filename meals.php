@@ -85,7 +85,7 @@ require __DIR__ . '/includes/head.php';
           <div class="mb-3">
             <label class="form-label" for="s-cost">Estimated cost (optional)</label>
             <div class="input-group">
-              <span class="input-group-text">৳</span>
+              <span class="input-group-text"><?= e((string) config('app.currency', '\u{20AC}')) ?></span>
               <input class="form-control" id="s-cost" name="estimated_cost"
                      inputmode="decimal" placeholder="0.00">
             </div>

@@ -96,41 +96,7 @@ if (PHP_SAPI !== 'cli' && session_status() !== PHP_SESSION_ACTIVE) {
         'secure'   => (($_SERVER['HTTPS'] ?? '') === 'on'),
     ]);
     session_start();
-    // Session activity and timeout
-    if (isset($_SESSION)) {
-        if (!isset($_SESSION['last_activity'])) {
-        // Check IP change
-        if (class_exists('Auth')) {
-            $currentIp = Auth::getClientIp();
-            if (isset($_SESSION['client_ip']) && $_SESSION['client_ip'] !== $currentIp && $currentIp !== null) {
-                session_unset(); session_destroy();
-                if (!headers_sent()) { $base = detect_base_url(); header('Location: ' . ($base===''?'/':$base) . '/login.php'); exit; }
-            }
-            $_SESSION['client_ip'] = $currentIp;
-        }
-        $_SESSION['last_activity'] = time();
-        }
-        $idle_timeout = (int) config('app.idle_timeout', 1800);
-        if ((time() - $_SESSION['last_activity']) > $idle_timeout) {
-            session_unset();
-            session_destroy();
-            if (!headers_sent()) {
-                $base = detect_base_url();
-                header('Location: ' . ($base === '' ? '/' : $base) . '/login.php');
-                exit;
-            }
-        }
-        // Check IP change
-        if (class_exists('Auth')) {
-            $currentIp = Auth::getClientIp();
-            if (isset($_SESSION['client_ip']) && $_SESSION['client_ip'] !== $currentIp && $currentIp !== null) {
-                session_unset(); session_destroy();
-                if (!headers_sent()) { $base = detect_base_url(); header('Location: ' . ($base===''?'/':$base) . '/login.php'); exit; }
-            }
-            $_SESSION['client_ip'] = $currentIp;
-        }
-        $_SESSION['last_activity'] = time();
-    }
+    $_SESSION['last_activity'] = time();
 }
 
 /* -------------------------------------------------------------------------- */
@@ -185,12 +151,12 @@ if (!function_exists('base_url')) {
 }
 
 if (!function_exists('money')) {
-    /** Format a decimal/cents value as "৳1,234.50". */
+    /** Format a decimal/cents value as "\u{20AC}1,234.50". */
     function money(float|int|string $amount, bool $withSymbol = true): string
     {
         $n = number_format((float) $amount, 2);
         return $withSymbol
-            ? config('app.currency', '৳') . $n
+            ? config('app.currency', '\u{20AC}') . $n
             : $n;
     }
 }
@@ -340,11 +306,81 @@ if (!function_exists('require_csrf')) {
 }
 
 /* -------------------------------------------------------------------------- */
+/*  Session lifetime                                                          */
+/* -------------------------------------------------------------------------- */
+if (!function_exists('enforce_session_lifetime')) {
+    /**
+     * End a session that has gone stale or moved to a different network.
+     *
+     * Runs on every authenticated request. Two things end the session:
+     *   * idle for longer than app.idle_timeout seconds, or
+     *   * the client IP changed, which is what a reconnect / network switch
+     *     looks like from the server's side.
+     *
+     * $json is true for XHR callers, which get a 401 body instead of a
+     * redirect so the client can send the browser to the login page.
+     *
+     * @return bool true when the caller may keep using the session
+     */
+    function enforce_session_lifetime(bool $json = false): bool
+    {
+        if (session_status() !== PHP_SESSION_ACTIVE) {
+            return true;
+        }
+
+        $now          = time();
+        $idleTimeout  = max(60, (int) config('app.idle_timeout', 1800));
+        $lastActivity = (int) ($_SESSION['last_activity'] ?? $now);
+        $idleFor      = $now - $lastActivity;
+
+        $clientIp  = Auth::getClientIp();
+        $ipChanged = $clientIp !== null
+            && isset($_SESSION['client_ip'])
+            && $_SESSION['client_ip'] !== $clientIp;
+
+        if ($idleFor <= $idleTimeout && !$ipChanged) {
+            $_SESSION['last_activity'] = $now;
+            return true;
+        }
+
+        $reason = $idleFor > $idleTimeout ? 'timeout' : 'session';
+        Auth::forgetSession();
+
+        session_unset();
+        session_destroy();
+
+        if ($json) {
+            if (!headers_sent()) {
+                http_response_code(401);
+                header('Content-Type: application/json; charset=utf-8');
+            }
+            echo json_encode([
+                'ok'    => false,
+                'error' => [
+                    'code'    => 'session_expired',
+                    'message' => $reason === 'timeout'
+                        ? 'You were signed out after a period of inactivity.'
+                        : 'You were signed out because your connection changed.',
+                    'reason'  => $reason,
+                ],
+            ], JSON_UNESCAPED_SLASHES);
+            exit;
+        }
+
+        if (!headers_sent()) {
+            redirect('login.php?reason=' . $reason);
+        }
+        exit;
+    }
+}
+
+/* -------------------------------------------------------------------------- */
 /*  Guard helpers for pages                                                    */
 /* -------------------------------------------------------------------------- */
 if (!function_exists('require_login')) {
     function require_login(): void
     {
+        enforce_session_lifetime();
         if (!Auth::check()) {
             flash('warning', 'Please sign in to continue.');
             redirect('login.php');

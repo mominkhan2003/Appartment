@@ -65,7 +65,7 @@ final class Validator
         return $this->store($field, $value);
     }
 
-    /** Accepts "1,250.75", "1250" or "৳1,250.75". Returns a float. */
+    /** Accepts "1,250.75", "1250" or "\u{20AC}1,250.75". Returns a float. */
     public function money(string $field, string $label, float $min = 0.01, float $max = 99_999_999.0): self
     {
         $value = (float) preg_replace('/[^0-9.\-]/', '', (string) $this->raw($field));
